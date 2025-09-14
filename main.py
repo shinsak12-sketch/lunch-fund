@@ -1,7 +1,32 @@
-from flask import Flask, request, redirect, url_for, render_template_string, g, session, flash
-import sqlite3
+from flask import Flask, request, redirect, url_for, render_template_string, g, session
 from datetime import date, datetime
 import os
+
+# Postgres 연결
+import psycopg2
+import psycopg2.extras
+
+DB_URL = os.environ.get("DATABASE_URL")  # Render 환경변수에 설정한 값 사용
+
+def get_db():
+    conn = getattr(g, "_db_conn", None)
+    if conn is None:
+        if not DB_URL:
+            raise RuntimeError("DATABASE_URL not set")
+        conn = g._db_conn = psycopg2.connect(DB_URL, sslmode="require")
+    return conn
+
+def db_execute(sql: str, params=()):
+    sql = sql.replace("?", "%s")
+    cur = get_db().cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(sql, params)
+    return cur
+
+@app.teardown_appcontext
+def close_db(_exc):
+    conn = getattr(g, "_db_conn", None)
+    if conn is not None:
+        conn.close()
 
 # ===== 설정 =====
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "7467")  # Replit Secrets 권장
@@ -26,55 +51,58 @@ def close_db(_exc):
         db.close()
 
 def init_db():
-    db = get_db()
-    cur = db.cursor()
-    # 기본 테이블
-    cur.execute("""CREATE TABLE IF NOT EXISTS members(name TEXT PRIMARY KEY);""")
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS deposits(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS members(
+        name TEXT PRIMARY KEY
+    );""")
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS deposits(
+        id SERIAL PRIMARY KEY,
         dt TEXT NOT NULL,
         name TEXT NOT NULL,
         amount INTEGER NOT NULL,
         note TEXT DEFAULT '',
-        FOREIGN KEY(name) REFERENCES members(name) ON DELETE CASCADE
+        CONSTRAINT fk_dep_member FOREIGN KEY(name) REFERENCES members(name) ON DELETE CASCADE
     );""")
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS meals(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS meals(
+        id SERIAL PRIMARY KEY,
         dt TEXT NOT NULL,
-        entry_mode TEXT NOT NULL DEFAULT 'total',  -- 'total' | 'detailed'
-        main_mode TEXT NOT NULL DEFAULT 'custom',  -- 'equal' | 'custom'
-        side_mode TEXT NOT NULL DEFAULT 'none',    -- 'equal' | 'custom' | 'none'
+        entry_mode TEXT NOT NULL DEFAULT 'total',
+        main_mode TEXT NOT NULL DEFAULT 'custom',
+        side_mode TEXT NOT NULL DEFAULT 'none',
         main_total INTEGER NOT NULL DEFAULT 0,
         side_total INTEGER NOT NULL DEFAULT 0,
         grand_total INTEGER NOT NULL DEFAULT 0,
         payer_name TEXT,
         guest_total INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY(payer_name) REFERENCES members(name) ON DELETE SET NULL
+        CONSTRAINT fk_meal_payer FOREIGN KEY(payer_name) REFERENCES members(name) ON DELETE SET NULL
     );""")
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS meal_parts(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS meal_parts(
+        id SERIAL PRIMARY KEY,
         meal_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         main_amount INTEGER NOT NULL DEFAULT 0,
         side_amount INTEGER NOT NULL DEFAULT 0,
         total_amount INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY(meal_id) REFERENCES meals(id) ON DELETE CASCADE,
-        FOREIGN KEY(name) REFERENCES members(name) ON DELETE CASCADE
+        CONSTRAINT fk_mp_meal FOREIGN KEY(meal_id) REFERENCES meals(id) ON DELETE CASCADE,
+        CONSTRAINT fk_mp_member FOREIGN KEY(name) REFERENCES members(name) ON DELETE CASCADE
     );""")
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS notices(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS notices(
+        id SERIAL PRIMARY KEY,
         dt TEXT NOT NULL,
         content TEXT NOT NULL
     );""")
-    db.commit()
+
+    conn.commit()
 
 # ------------------ 유틸 ------------------
 def get_members():
-    cur = get_db().execute("SELECT name FROM members ORDER BY name;")
+    cur = db_execute("SELECT name FROM members ORDER BY name;")
     return [r["name"] for r in cur.fetchall()]
 
 def split_even(total, n):
@@ -86,24 +114,36 @@ def split_even(total, n):
     return shares
 
 def get_balances():
-    db = get_db()
     members = get_members()
     dep_map = {m: 0 for m in members}
-    for r in db.execute("SELECT name, SUM(amount) s FROM deposits GROUP BY name;"): dep_map[r["name"]] = r["s"] or 0
-    use_map = {m: 0 for m in members}
-    for r in db.execute("SELECT name, SUM(total_amount) s FROM meal_parts GROUP BY name;"): use_map[r["name"]] = r["s"] or 0
-    return [{"name": m, "deposit": dep_map.get(m,0), "used": use_map.get(m,0), "balance": dep_map.get(m,0)-use_map.get(m,0)} for m in members]
+    cur = db_execute("SELECT name, SUM(amount) AS s FROM deposits GROUP BY name;")
+    for r in cur.fetchall():
+        dep_map[r["name"]] = r["s"] or 0
 
+    use_map = {m: 0 for m in members}
+    cur = db_execute("SELECT name, SUM(total_amount) AS s FROM meal_parts GROUP BY name;")
+    for r in cur.fetchall():
+        use_map[r["name"]] = r["s"] or 0
+
+    return [{
+        "name": m,
+        "deposit": dep_map.get(m, 0),
+        "used": use_map.get(m, 0),
+        "balance": dep_map.get(m, 0) - use_map.get(m, 0)
+    } for m in members]
+    
 def get_balance_of(name):
-    db = get_db()
-    dep = db.execute("SELECT COALESCE(SUM(amount),0) FROM deposits WHERE name=?;", (name,)).fetchone()[0] or 0
-    used = db.execute("SELECT COALESCE(SUM(total_amount),0) FROM meal_parts WHERE name=?;", (name,)).fetchone()[0] or 0
+    cur = db_execute("SELECT COALESCE(SUM(amount),0) AS s FROM deposits WHERE name=?;", (name,))
+    dep = (cur.fetchone() or {}).get("s", 0)
+
+    cur = db_execute("SELECT COALESCE(SUM(total_amount),0) AS s FROM meal_parts WHERE name=?;", (name,))
+    used = (cur.fetchone() or {}).get("s", 0)
+
     return dep - used
 
 def get_meal_counts_map():
-    db = get_db()
-    rows = db.execute("SELECT name, COUNT(*) c FROM meal_parts GROUP BY name;").fetchall()
-    return {r["name"]: (r["c"] or 0) for r in rows}
+    cur = db_execute("SELECT name, COUNT(*) AS c FROM meal_parts GROUP BY name;")
+    return {r["name"]: (r["c"] or 0) for r in cur.fetchall()}
 
 def html_escape(s):
     if s is None: return ""
