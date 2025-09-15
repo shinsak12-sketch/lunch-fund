@@ -323,7 +323,7 @@ def home():
             <div class="card shadow-sm bg-dark text-white">
               <div class="card-body">
                 <h5 class="card-title">등록된 팀원 (총 {len(members)}명)</h5>
-                <ul class="mb-0 compact">{member_items}</ul>
+                <ul class="mb-0 compact" style="color:white;">{member_items}</ul>
                 <div class="mt-3">
                   <a class="btn btn-sm btn-secondary" href="{ url_for('settings') }">팀원설정</a>
                 </div>
