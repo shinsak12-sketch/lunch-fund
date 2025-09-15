@@ -474,13 +474,14 @@ def settings():
     </div>
 
     <script>
-      function confirmDelete(name, balance) {
-        if (balance !== 0) {
-          return confirm("⚠️ 잔액 " + balance.toLocaleString() + "원이 남아있습니다.\\n삭제하면 관련 입금/사용 기록도 함께 삭제됩니다. 계속할까요?");
-        }
+      function confirmDelete(name, balance) {{
+        if (balance !== 0) {{
+          return confirm("⚠️ 잔액 " + balance.toLocaleString() + "원이 남아있습니다.\n삭제하면 관련 입금/사용 기록도 함께 삭제됩니다. 계속할까요?");
+        }}
         return confirm("'" + name + "' 팀원을 삭제하시겠습니까?");
-      }
+      }}
     </script>
+    
     """
     return render(body)
 
