@@ -1336,64 +1336,6 @@ def dice_game():
         if len(players) < 2:
             flash("2명 이상 선택하세요.", "warning"); return redirect(url_for("dice_game"))
         max_dice = int(request.form.get("max_dice") or 1)
-        if max_dice < 1: max_dice = 1
-        if max_dice > 3: max_dice = 3
-
-        # 랜덤 룰 선택
-        rule_fn = random.choice(DICE_RULES)
-        rule_text, short_fn = rule_fn(None)
-
-        # 굴리기(연출은 텍스트)
-        rolls_per_player = []
-        for _p in players:
-            rolls = [random.randint(1,6) for _ in range(max_dice)]
-            rolls_per_player.append(rolls)
-
-        # 판정
-        loser_index = None
-        if "2회 굴려 합" in rule_text:
-            sums = [sum([random.randint(1,6) for _ in range(2)]) for _ in players]
-            max_sum = max(sums)
-            cand = [i for i,s in enumerate(sums) if s==max_sum]
-            if len(cand) == 1:
-                loser_index = cand[0]
-            else:
-                last_eye = [random.randint(1,6) for _ in cand]
-                loser_index = cand[last_eye.index(max(last_eye))]
-            rule_text += f" (합:{sums})"
-        elif "중앙값" in rule_text and len(players) == 3:
-                # 중앙값: 각자 1개씩만 보고 중앙값이 가장 '가까운 4'에 해당하는 사람으로 변형
-                ones = [rolls[0] for rolls in rolls_per_player]
-                scores = [abs(o - 4) for o in ones]
-                loser_index = scores.index(min(scores))
-                rule_text += f" (첫눈:{ones})"
-        elif "최솟값이 호구" in rule_text:
-                ones = [rolls[0] for rolls in rolls_per_player]
-                if 1 in ones:
-                    # 1 나온 사람 면책
-                    tmp = [(999 if x == 1 else x) for x in ones]
-                    loser_index = tmp.index(min(tmp))
-                    rule_text += f" (1면책, 눈:{ones})"
-                else:
-                    loser_index = ones.index(min(ones))
-                    rule_text += f" (눈:{ones})"
-# ------------------ 주사위 게임 ------------------
-DICE_RULES = [
-    lambda r: ("단 한 번! 가장 큰 수가 호구", lambda rolls: rolls.index(max(rolls))),
-    lambda r: ("2회 굴려 합이 가장 큰 사람이 호구(동점이면 마지막 눈 큰 사람)", None),
-    lambda r: ("주사위 2개 합에서 10을 뺀 절댓값이 가장 큰 사람이 호구", None),
-    lambda r: ("세 사람이면 가운데 값(중앙값) 낸 사람이 호구, 그 외엔 최대값", None),
-    lambda r: ("최솟값이 호구! 단, 1이 나온 사람은 면책되고 다음 최솟값이 호구", None),
-]
-
-@app.route("/games/dice", methods=["GET","POST"])
-def dice_game():
-    members = get_members()
-    if request.method == "POST":
-        players, _ = parse_players()
-        if len(players) < 2:
-            flash("2명 이상 선택하세요.", "warning"); return redirect(url_for("dice_game"))
-        max_dice = int(request.form.get("max_dice") or 1)
         max_dice = 1 if max_dice < 1 else 3 if max_dice > 3 else max_dice
 
         # 룰 선택 + 굴림
