@@ -243,6 +243,18 @@ header.topbar .nav.nav-pills.nav-convex .nav-link:focus {
 @media (max-width: 576px) {
   header.topbar .nav.nav-pills.nav-convex .nav-link { padding: .4rem .75rem; }
 }
+/* ===== Meals table upgrades ===== */
+.table-scroll { overflow-x: auto; }
+.table-minwide { min-width: 900px; } /* 필요시 숫자 조절 */
+.table-sticky thead th {
+  position: sticky; top: 0;
+  background: #fff; z-index: 2;  /* 헤더가 내용 위에 오도록 */
+}
+.table-nowrap th, .table-nowrap td { white-space: nowrap; }
+.meals-actions .btn { margin-right: .25rem; } /* 버튼 간 살짝 간격 */
+@media (max-width: 576px) {
+  .table-minwide { min-width: 720px; }
+}
   </style>
 </head>
 <body class="bg-light">
@@ -277,21 +289,6 @@ header.topbar .nav.nav-pills.nav-convex .nav-link:focus {
 </body>
 </html>
 """
-/* ===== Meals table upgrades ===== */
-.table-scroll { overflow-x: auto; }
-.table-minwide { min-width: 900px; } /* 필요시 숫자 조절 */
-.table-sticky thead th {
-  position: sticky; top: 0;
-  background: #fff; z-index: 2;  /* 헤더가 내용 위에 오도록 */
-}
-.table-nowrap th, .table-nowrap td { white-space: nowrap; }
-.meals-actions .btn { margin-right: .25rem; } /* 버튼 간 살짝 간격 */
-@media (max-width: 576px) {
-  .table-minwide { min-width: 720px; }
-}
-
-def render(body_html, **ctx):
-    return render_template_string(BASE, body=body_html, **ctx)
 
 # ------------------ 로그인/로그아웃/핑 ------------------
 @app.route("/login", methods=["GET", "POST"])
