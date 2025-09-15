@@ -200,7 +200,8 @@ BASE = """
 header.topbar .nav.nav-pills.nav-convex .nav-link {
   position: relative;
   border-radius: 999px;
-  padding: .45rem .9rem;
+  padding: .35rem .7rem;
+  font-size: .9rem;
   font-weight: 600;
   background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0));
   color: #fff !important;
