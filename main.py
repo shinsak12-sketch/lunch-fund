@@ -257,7 +257,10 @@ def home():
     if members:
         negatives = [b for b in get_balances() if b["balance"] < 0]
         if negatives:
-            items = "".join([f"<li><strong>{b['name']}</strong> : <span class='text-danger'>{b['balance']:,}원</span></li>" for b in negatives])
+            items = "".join([
+                f"<li><strong>{b['name']}</strong> : <span class='text-danger'>{b['balance']:,}원</span></li>"
+                for b in negatives
+            ])
             notice_html = f"""
             <div class="alert alert-warning shadow-sm" role="alert">
               <div class="d-flex align-items-center mb-1">
@@ -271,7 +274,10 @@ def home():
     notices_html = ""
     nrows = db_execute("SELECT dt, content FROM notices ORDER BY id DESC LIMIT 5;").fetchall()
     if nrows:
-        lis = "".join([f"<li><span class='text-muted me-2'>[{r['dt']}]</span>{html_escape(r['content'])}</li>" for r in nrows])
+        lis = "".join([
+            f"<li><span class='text-muted me-2'>[{r['dt']}]</span>{html_escape(r['content'])}</li>"
+            for r in nrows
+        ])
         notices_html = f"""
         <div class="alert alert-info shadow-sm">
           <div class="fw-bold mb-1">📌 공지사항</div>
@@ -279,66 +285,42 @@ def home():
         </div>"""
 
     if not members:
-        # quick-setup 제거: 빈 상태 안내 -> 팀원설정 이동
+        # 초기 세팅 (최대 10칸 제공, 빈 칸 무시)
+        input_rows = "".join([
+            f"""
+            <div class="col-12 col-md-6 col-lg-4">
+              <input class="form-control" name="m{i}" placeholder="이름 {i+1}">
+            </div>""" for i in range(10)
+        ])
         body = f"""
         {notice_html}
         {notices_html}
         <div class="card shadow-sm">
           <div class="card-body">
-            <h5 class="card-title mb-2">시작하려면 팀원을 등록하세요</h5>
-            <p class="text-muted mb-3">첫 사용 시 <b>팀원설정</b>에서 구성원을 추가해야 합니다.</p>
-            <a class="btn btn-success" href="{ url_for('settings') }">팀원설정으로 이동</a>
+            <h5 class="card-title">첫 실행: 팀원 등록</h5>
+            <form method="post" action="{ url_for('quick_setup') }">
+              <div class="row g-2">{input_rows}</div>
+              <div class="mt-3 d-flex gap-2">
+                <button class="btn btn-primary">저장</button>
+              </div>
+            </form>
           </div>
         </div>
         """
     else:
-        balances = get_balances()
-        # 블랙/화이트 현황판
-        status_rows = "".join([
-            f"<tr><td>{b['name']}</td><td class='num'>{b['deposit']:,}</td><td class='num'>{b['used']:,}</td><td class='num'>{b['balance']:,}</td></tr>"
-            for b in balances
-        ])
+        balances_map = {b["name"]: b["balance"] for b in get_balances()}
         counts_map = get_meal_counts_map()
-        balances_map = {b["name"]: b["balance"] for b in balances}
         member_items = "".join([
-            f"<li class='d-flex justify-content-between'><span>{n}</span><span class='text-muted'>잔액 {balances_map.get(n,0):,}원 · 식사 {counts_map.get(n,0)}회</span></li>"
+            f"<li class='d-flex justify-content-between'><span>{n}</span>"
+            f"<span class='text-muted'>잔액 {balances_map.get(n,0):,}원 · 식사 {counts_map.get(n,0)}회</span></li>"
             for n in members
         ])
-
         body = f"""
         {notice_html}
         {notices_html}
-
         <div class="row g-3">
           <div class="col-12">
-            <div class="card dashboard shadow-sm">
-              <div class="card-body">
-                <h5 class="card-title">현황판</h5>
-                <div class="table-responsive">
-                  <table class="table table-sm mb-0">
-                    <thead><tr><th>이름</th><th class='text-end'>입금합계</th><th class='text-end'>사용합계</th><th class='text-end'>잔액</th></tr></thead>
-                    <tbody>{status_rows}</tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="col-12 col-lg-6">
-            <div class="card shadow-sm">
-              <div class="card-body">
-                <h5 class="card-title mb-2">빠른 작업</h5>
-                <div class="d-grid gap-2">
-                  <a class="btn btn-outline-light" style="background:#00854A;color:#fff;" href="{ url_for('deposit') }">입금 등록</a>
-                  <a class="btn btn-outline-light" style="background:#00854A;color:#fff;" href="{ url_for('meal') }">식사 등록</a>
-                  <a class="btn btn-outline-dark" href="{ url_for('status') }">상세 현황/정산</a>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="col-12 col-lg-6">
-            <div class="card shadow-sm">
+            <div class="card shadow-sm bg-dark text-white">
               <div class="card-body">
                 <h5 class="card-title">등록된 팀원 (총 {len(members)}명)</h5>
                 <ul class="mb-0 compact">{member_items}</ul>
