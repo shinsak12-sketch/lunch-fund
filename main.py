@@ -2152,25 +2152,29 @@ def oddcard_game():
     # GET: 설정 폼
     if request.method == "GET":
         opts = "".join([f"<option value='{m}'>{m}</option>" for m in members])
-        body = f"""
-        <div class="card shadow-sm"><div class="card-body">
-          <h5 class="card-title">외톨이 카드</h5>
-          <p class="text-muted">홀수 인원만 참여 가능. 같은 동물 2장씩 + 외톨이 1장. 모두 공개 후 조커 효과가 적용됩니다.</p>
-          <form method="post">
-            <div class="mb-2">
-              <label class="form-label">플레이어</label>
-              <select class="form-select" name="players" multiple size="6">{opts}</select>
-            </div>
-            <div class="mb-2">
-              <label class="form-label">게스트 (쉼표로 구분)</label>
-              <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
-            </div>
-            <button class="btn btn-primary">게임 시작</button>
-            <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
-          </form>
-        </div></div>
-        """
-        return render(body)
+
+    body = f"""\
+    <div class="card shadow-sm"><div class="card-body">
+      <h5 class="card-title">외톨이 카드</h5>
+      <p class="text-muted">홀수 인원만 참여 가능. 같은 동물 2장씩 + 외톨이 1장. 모두 공개 후 조커 효과 적용.</p>
+
+      <form method="post">
+        <div class="mb-2">
+          <label class="form-label">플레이어</label>
+          <select class="form-select" name="players" multiple size="6">{opts}</select>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label">게스트 (쉼표로 구분)</label>
+          <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
+        </div>
+
+        <button class="btn btn-primary w-100" type="submit">시작</button>
+      </form>
+    </div></div>
+    """
+
+    return body      
 
     # POST: 게임 진행
     players, _ = parse_players()
