@@ -188,8 +188,8 @@ BASE = """
   <style>
     :root { --brand-green: #00854A; }
     body {
-  background: url("{{ url_for('static', filename='static/bg-hex.jpg') }}") repeat;
-  background-size: 250px auto;  /* 패턴 크기 조절 (200~300px 정도가 무난) */
+  background: url("{{ url_for('static', filename='bg-hex.jpg') }}") repeat;
+  background-size: 250px auto;
 }
     body { padding-bottom: 40px; }
     .num { text-align: right; }
