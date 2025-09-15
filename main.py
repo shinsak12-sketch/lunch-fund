@@ -1564,6 +1564,297 @@ def oddcard_game():
     """
     return render(body)
 
+# ------------------ 호구게임: 주사위 ------------------
+
+@app.get("/games")
+def games_home():
+    body = """
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">호구게임</h5>
+        <p class="text-muted mb-3">복불복 미니게임 모음</p>
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-success" href="{dice_url}">주사위 게임</a>
+          <span class="btn btn-outline-secondary disabled">사다리(준비중)</span>
+          <span class="btn btn-outline-secondary disabled">원판(준비중)</span>
+          <span class="btn btn-outline-secondary disabled">카드(준비중)</span>
+        </div>
+      </div>
+    </div>
+    """.format(dice_url=url_for("dice_page"))
+    return render(body)
+
+@app.get("/games/dice")
+def dice_page():
+    members = get_members()
+    opts = "".join([f"<label class='me-3 mb-2'><input class='form-check-input me-1' type='checkbox' name='p' value='{m}'> {m}</label>" for m in members])
+    body = f"""
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">주사위 게임</h5>
+        <div class="row g-3">
+          <div class="col-12 col-lg-6">
+            <div class="mb-2">
+              <div class="form-label fw-semibold">플레이어 선택</div>
+              <div>{opts}</div>
+              <div class="mt-2">
+                <label class="form-label">게스트 추가 (쉼표로 여러명)</label>
+                <input id="guestInput" class="form-control" placeholder="예: 손님1, 손님2">
+              </div>
+            </div>
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label">주사위 개수</label>
+                <select id="diceCount" class="form-select">
+                  <option value="1">1개</option>
+                  <option value="2">2개</option>
+                  <option value="3" selected>3개</option>
+                </select>
+              </div>
+              <div class="col-6">
+                <label class="form-label">룰</label>
+                <div class="d-flex gap-2">
+                  <button id="btnRule" class="btn btn-outline-primary">랜덤 룰 뽑기</button>
+                  <span id="ruleText" class="align-self-center text-muted"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-3 d-flex gap-2">
+              <button id="btnStart" class="btn btn-success">게임 시작</button>
+              <a class="btn btn-outline-secondary" href="{url_for('games_home')}">뒤로</a>
+            </div>
+          </div>
+
+          <div class="col-12 col-lg-6">
+            <div class="border rounded p-3">
+              <div class="fw-semibold mb-2">진행 화면</div>
+              <div id="stage" class="display-6" style="min-height:3rem;">🎲 준비 중...</div>
+              <div id="rollArea" class="mt-3"></div>
+              <div id="resultArea" class="mt-3"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const DICE_UNI = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+
+      const ruleText = document.getElementById('ruleText');
+      const btnRule  = document.getElementById('btnRule');
+      const btnStart = document.getElementById('btnStart');
+      const diceCountSel = document.getElementById('diceCount');
+      const guestInput = document.getElementById('guestInput');
+      const stage = document.getElementById('stage');
+      const rollArea = document.getElementById('rollArea');
+      const resultArea = document.getElementById('resultArea');
+
+      let currentRule = null;
+
+      btnRule.addEventListener('click', async () => {{
+        const n = parseInt(diceCountSel.value);
+        const r = await fetch('/api/dice-rules?n=' + n).then(r => r.json());
+        currentRule = r;
+        ruleText.textContent = r.text;
+      }});
+
+      function collectPlayers() {{
+        const boxes = document.querySelectorAll("input[type='checkbox'][name='p']:checked");
+        let players = Array.from(boxes).map(b => b.value);
+        const guests = guestInput.value.trim();
+        if (guests) {{
+          players = players.concat(guests.split(',').map(s => s.trim()).filter(Boolean));
+        }}
+        return players;
+      }}
+
+      function fakeSpin(names, nDice, duration=1800, interval=80) {{
+        // 간단한 연출: 주사위 이모지와 플레이어 이름을 빠르게 섞다가 멈춤
+        stage.textContent = '🎲 주사위 굴리는 중...';
+        rollArea.innerHTML = '';
+        resultArea.innerHTML = '';
+        const box = document.createElement('div');
+        box.className = 'fs-1';
+        rollArea.appendChild(box);
+
+        const nameBox = document.createElement('div');
+        nameBox.className = 'mt-2';
+        rollArea.appendChild(nameBox);
+
+        let t = 0;
+        const timer = setInterval(() => {{
+          // 주사위 표시
+          let faces = [];
+          for (let i=0;i<nDice;i++) {{
+            faces.push(DICE_UNI[Math.floor(Math.random()*6)]);
+          }}
+          box.textContent = faces.join(' ');
+          // 이름 굴리기
+          nameBox.textContent = '대상: ' + names[Math.floor(Math.random()*names.length)];
+          t += interval;
+          if (t >= duration) {{
+            clearInterval(timer);
+          }}
+        }}, interval);
+        return new Promise(res => setTimeout(res, duration+150)); // 연출 끝날 때까지 대기
+      }}
+
+      btnStart.addEventListener('click', async () => {{
+        const players = collectPlayers();
+        const n = parseInt(diceCountSel.value);
+        if (!players || players.length < 2) {{
+          alert('플레이어를 2명 이상 선택/입력하세요.');
+          return;
+        }}
+        // 룰 없으면 자동 뽑기
+        if (!currentRule || currentRule.n !== n) {{
+          const r = await fetch('/api/dice-rules?n=' + n).then(r => r.json());
+          currentRule = r;
+          ruleText.textContent = r.text;
+        }}
+
+        // 연출
+        await fakeSpin(players, n);
+
+        // 실제 결과 요청
+        const resp = await fetch('/api/roll-dice', {{
+          method: 'POST',
+          headers: {{'Content-Type':'application/json'}},
+          body: JSON.stringify({{ players, n }})
+        }}).then(r => r.json());
+
+        // 결과 표시
+        stage.textContent = '결과';
+        const list = document.createElement('div');
+        for (const item of resp.details) {{
+          const line = document.createElement('div');
+          const diceFaces = item.rolls.map(v => DICE_UNI[v-1]).join(' ');
+          line.textContent = `${{item.name}} → ${{diceFaces}} (합 ${{item.sum}})`;
+          list.appendChild(line);
+        }}
+        rollArea.innerHTML = '';
+        rollArea.appendChild(list);
+
+        resultArea.innerHTML = `<div class="mt-2"><b>룰:</b> ${{currentRule.text}}</div>
+                                <div class="mt-2 fs-5">☕️ 당첨(사기): <b>${{resp.loser}}</b></div>`;
+      }});
+    </script>
+    """
+    return render(body)
+
+# 주사위 룰 제공 (n=1~3)
+@app.get("/api/dice-rules")
+def api_dice_rules():
+    try:
+        n = int(request.args.get("n", "3"))
+    except:
+        n = 3
+    n = max(1, min(3, n))
+
+    rules_1 = [
+        ("highest", "주사위 1개 — 가장 큰 숫자가 사기"),
+        ("lowest",  "주사위 1개 — 가장 작은 숫자가 사기"),
+        ("prime",   "주사위 1개 — 소수(2,3,5) 나온 사람 중 가장 큰 숫자가 사기 (없으면 재굴림)"),
+        ("ones",    "주사위 1개 — 1 나온 사람이 사기 (없으면 재굴림)"),
+    ]
+    rules_2 = [
+        ("sum_high", "주사위 2개 — 합이 가장 큰 사람이 사기"),
+        ("sum_low",  "주사위 2개 — 합이 가장 작은 사람이 사기"),
+        ("gt7",      "주사위 2개 — 합이 7 초과인 사람들 중 가장 큰 합이 사기 (없으면 재굴림)"),
+        ("even",     "주사위 2개 — 합이 짝수인 사람들 중 가장 큰 합이 사기 (없으면 재굴림)"),
+        ("double",   "주사위 2개 — 더블(같은 눈) 나온 사람 중 합이 큰 사람이 사기 (없으면 재굴림)"),
+    ]
+    rules_3 = [
+        ("mod3",     "주사위 3개 — 합이 3의 배수인 사람들 중 합이 가장 큰 사람이 사기 (없으면 재굴림)"),
+        ("triple",   "주사위 3개 — 트리플(세 눈 동일) 나오면 무조건 사기 (없으면 일반 규칙으로)"),
+        ("sum_high", "주사위 3개 — 합이 가장 큰 사람이 사기"),
+        ("sum_low",  "주사위 3개 — 합이 가장 작은 사람이 사기"),
+    ]
+
+    pool = rules_1 if n==1 else (rules_2 if n==2 else rules_3)
+    code, text = random.choice(pool)
+    return {"n": n, "code": code, "text": text}
+
+# 실제 주사위 굴리고 패자 결정
+@app.post("/api/roll-dice")
+def api_roll_dice():
+    data = request.get_json(force=True, silent=True) or {}
+    players = data.get("players") or []
+    n = int(data.get("n") or 3)
+    n = max(1, min(3, n))
+    if len(players) < 2:
+        return {"error":"need >=2 players"}, 400
+
+    # 룰 재사용을 위해 다시 뽑아도 되고, 프론트에서 본 직후라 아무거나 동일 family 사용
+    rule = api_dice_rules()
+    code = rule["code"]
+
+    # 굴림
+    details = []
+    any_triple = False
+    for name in players:
+        rolls = [random.randint(1,6) for _ in range(n)]
+        s = sum(rolls)
+        details.append({"name": name, "rolls": rolls, "sum": s})
+        if n==3 and rolls[0]==rolls[1]==rolls[2]:
+            any_triple = True
+
+    loser = None
+
+    def pick_high(cands):  # 합이 높은 사람
+        return max(cands, key=lambda x: x["sum"])["name"]
+
+    def pick_low(cands):
+        return min(cands, key=lambda x: x["sum"])["name"]
+
+    if n==1:
+        if code=="highest":
+            loser = max(details, key=lambda x: x["rolls"][0])["name"]
+        elif code=="lowest":
+            loser = min(details, key=lambda x: x["rolls"][0])["name"]
+        elif code=="prime":
+            cands = [d for d in details if d["rolls"][0] in (2,3,5)]
+            loser = pick_high(cands) if cands else random.choice(players)
+        elif code=="ones":
+            cands = [d for d in details if d["rolls"][0]==1]
+            loser = random.choice([c["name"] for c in cands]) if cands else random.choice(players)
+        else:
+            loser = pick_high(details)
+
+    elif n==2:
+        if code=="sum_high":
+            loser = pick_high(details)
+        elif code=="sum_low":
+            loser = pick_low(details)
+        elif code=="gt7":
+            cands = [d for d in details if d["sum"]>7]
+            loser = pick_high(cands) if cands else pick_high(details)
+        elif code=="even":
+            cands = [d for d in details if d["sum"]%2==0]
+            loser = pick_high(cands) if cands else pick_high(details)
+        elif code=="double":
+            cands = [d for d in details if d["rolls"][0]==d["rolls"][1]]
+            loser = pick_high(cands) if cands else pick_high(details)
+        else:
+            loser = pick_high(details)
+
+    else:  # n==3
+        if code=="triple" and any_triple:
+            cands = [d for d in details if d["rolls"][0]==d["rolls"][1]==d["rolls"][2]]
+            loser = pick_high(cands)
+        elif code=="sum_high":
+            loser = pick_high(details)
+        elif code=="sum_low":
+            loser = pick_low(details)
+        elif code=="mod3":
+            cands = [d for d in details if d["sum"] % 3 == 0]
+            loser = pick_high(cands) if cands else pick_high(details)
+        else:
+            loser = pick_high(details)
+
+    return {"loser": loser, "details": details}
+
 # ------------------ 앱 실행 ------------------
 if __name__ == "__main__":
     with app.app_context():
