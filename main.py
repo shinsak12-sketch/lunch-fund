@@ -1133,18 +1133,61 @@ def meal_delete(meal_id):
 @app.route("/status")
 def status():
     balances = get_balances()
-    rows = "".join([
-        f"<tr><td>{b['name']}</td><td class='num'>{b['deposit']:,}</td><td class='num'>{b['used']:,}</td><td class='num'>{b['balance']:,}</td></tr>"
-        for b in balances
-    ])
+
+    # 합계 계산
+    total_deposit = sum(b["deposit"] for b in balances)
+    total_used    = sum(b["used"]    for b in balances)
+    total_balance = sum(b["balance"] for b in balances)  # = total_deposit - total_used
+
+    # 행 렌더링
+    rows = ""
+    for b in balances:
+        cls = "text-danger" if b["balance"] < 0 else ""
+        rows += (
+            f"<tr>"
+            f"<td>{b['name']}</td>"
+            f"<td class='num'>{b['deposit']:,}</td>"
+            f"<td class='num'>{b['used']:,}</td>"
+            f"<td class='num {cls}'>{b['balance']:,}</td>"
+            f"</tr>"
+        )
+
+    # 표 푸터에 합계 표시
     body = f"""
     <div class="card shadow-sm">
       <div class="card-body">
         <h5 class="card-title">현황 / 정산</h5>
-        <table class="table table-sm">
-          <thead><tr><th>이름</th><th class='text-end'>입금합계</th><th class='text-end'>사용합계</th><th class='text-end'>잔액</th></tr></thead>
-          <tbody>{rows}</tbody>
-        </table>
+
+        <div class="mb-2">
+          <span class="badge bg-secondary me-1">입금 합계: {total_deposit:,}원</span>
+          <span class="badge bg-secondary me-1">차감 합계: {total_used:,}원</span>
+          <span class="badge bg-dark">잔액 합계: {total_balance:,}원</span>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th>이름</th>
+                <th class='text-end'>입금합계</th>
+                <th class='text-end'>차감합계</th>
+                <th class='text-end'>잔액</th>
+              </tr>
+            </thead>
+            <tbody>{rows}</tbody>
+            <tfoot>
+              <tr class="fw-bold">
+                <td class='text-end'>합계</td>
+                <td class='num'>{total_deposit:,}</td>
+                <td class='num'>{total_used:,}</td>
+                <td class='num'>{total_balance:,}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div class="text-muted small">
+          * 잔액 합계는 실제 통장 잔액과 비교용입니다.
+        </div>
       </div>
     </div>
     """
