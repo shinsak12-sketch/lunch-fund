@@ -1888,6 +1888,8 @@ def _apply_joker_rule(players, assignment, base_loser, joker_person, effect):
 
 @app.route("/loner", methods=["GET","POST"])
 def loner_game():
+    # oddcard_game 이라는 엔드포인트도 loner_game 과 연결
+    app.add_url_rule("/oddcard", endpoint="oddcard_game", view_func=loner_game, methods=["GET","POST"])
     # 전역 members 없을 수도 있어서 안전 처리
     all_members = globals().get("members", [])
     if request.method == "GET":
