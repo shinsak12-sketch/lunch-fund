@@ -1375,7 +1375,11 @@ def dice_game():
         elif "최솟값이 호구" in rule_text:
             ones = [rolls[0] for rolls in rolls_per_player]
             if 1 in ones:
-                # 1 나온 사람 면책
+    # 1 나온 사람 면책
+    tmp = [(999 if x == 1 else x) for x in ones]
+    loser_index = tmp.index(min(tmp))
+    rule_text += f" (1면책, 눈:{ones})"
+    
 # ------------------ 주사위 게임 ------------------
 DICE_RULES = [
     lambda r: ("단 한 번! 가장 큰 수가 호구", lambda rolls: rolls.index(max(rolls))),
