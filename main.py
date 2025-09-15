@@ -1649,66 +1649,321 @@ def dice_game():
     """
     return render(body)
 
-# ------------------ 사다리 게임(간단 변형) ------------------
+# ------------------ 사다리 게임 (애니메이션/SVG) ------------------
 @app.route("/games/ladder", methods=["GET","POST"])
 def ladder_game():
     members = get_members()
-    if request.method == "POST":
-        players, _ = parse_players()
-        if len(players) < 2:
-            flash("2명 이상 선택하세요.", "warning"); return redirect(url_for("ladder_game"))
 
-        # 기본 매핑: 시작->끝 무작위
-        end_positions = list(range(len(players)))
-        random.shuffle(end_positions)
+    # 최종 저장 단계
+    final_payload = request.form.get("final_payload")
+    if final_payload:
+        try:
+            payload = json.loads(final_payload)
+            players = payload["players"]
+            levels = int(payload["levels"])
+            rungs = payload["rungs"]  # [{level:int, col:int}]  (col ~ col+1 연결)
+            end_positions = payload["end_positions"]  # 각 시작열이 최종 어디로 도착했는지
+        except Exception:
+            flash("결과 데이터가 올바르지 않습니다.", "danger")
+            return redirect(url_for("ladder_game"))
 
-        events = []
-        # 변형 이벤트 일부 랜덤 적용
-        if random.random() < 0.5 and len(players) >= 3:
-            # [이벤트] 4번이 2번자리로 이동(예시): 랜덤 한 명이 다른 사람 자리로 "끼어들기"
-            a = random.randrange(len(players))
-            b = random.randrange(len(players))
-            if a != b:
-                events.append(f"{a+1}번이 {b+1}번 자리로 끼어들기")
-                end_positions[a], end_positions[b] = end_positions[b], end_positions[a]
-
-        if random.random() < 0.5 and len(players) >= 2:
-            # [이벤트] 두 사람 자리 스왑
-            i, j = random.sample(range(len(players)), 2)
-            events.append(f"{i+1}번과 {j+1}번 자리 스왑")
-            end_positions[i], end_positions[j] = end_positions[j], end_positions[i]
-
-        # 맨 마지막 자리에 걸린 사람 = 호구 (연출 단순화)
+        # 맨 오른쪽(가장 큰 인덱스) 도착자가 호구
         loser_index = end_positions.index(max(end_positions))
         loser = players[loser_index]
-        upsert_hogu_loss(loser, 1)
 
-        rule_text = "사다리 랜덤 매칭 + 변형 이벤트: " + (", ".join(events) if events else "없음")
-        db_execute("INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?);",
-                   (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "ladder", rule_text, json.dumps(players,ensure_ascii=False), loser, json.dumps({"end_positions":end_positions,"events":events},ensure_ascii=False)))
+        rule_text = "사다리 랜덤 매칭 (가장 오른쪽 도착자가 호구)"
+        upsert_hogu_loss(loser, 1)
+        db_execute(
+            "INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?)",
+            (
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "ladder",
+                rule_text,
+                json.dumps(players, ensure_ascii=False),
+                loser,
+                json.dumps({"levels": levels, "rungs": rungs, "end_positions": end_positions}, ensure_ascii=False),
+            ),
+        )
         get_db().commit()
 
-        flash(f"룰: {rule_text}<br>참가자: {', '.join(players)}<br><b>호구: {loser}</b>", "success")
-        return redirect(url_for("games_home"))
+        # 표 렌더
+        rows = ""
+        for i, p in enumerate(players):
+            rows += f"<tr{' class=\"table-danger\"' if i==loser_index else ''}><td>{html_escape(p)}</td><td class='num'>{end_positions[i]+1}번 줄</td></tr>"
 
-    opts = "".join([f"<option value='{m}'>{m}</option>" for m in members])
+        body = f"""
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <h5 class="card-title">🎉 결과</h5>
+            <div class="mb-2 text-muted">{html_escape(rule_text)}</div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead><tr><th>이름</th><th class='text-end'>도착 위치</th></tr></thead>
+                <tbody>{rows}</tbody>
+              </table>
+            </div>
+            <div class="alert alert-success"><b>호구:</b> {html_escape(loser)}</div>
+            <div class="d-flex gap-2">
+              <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">게임 홈</a>
+              <a class="btn btn-primary" href="{ url_for('ladder_game') }">다시 하기</a>
+            </div>
+          </div>
+        </div>
+        """
+        return render(body)
+
+    # GET: 선택 폼
+    if request.method == "GET":
+        opts = "".join([f"<option value='{m}'>{m}</option>" for m in members])
+        body = f"""
+        <div class="card shadow-sm"><div class="card-body">
+          <h5 class="card-title">사다리 게임</h5>
+          <form method="post">
+            <div class="mb-2">
+              <label class="form-label">플레이어(다중선택)</label>
+              <select class="form-select" name="players" multiple size="6">{opts}</select>
+            </div>
+            <button class="btn btn-primary">게임 시작</button>
+            <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
+          </form>
+        </div></div>
+        """
+        return render(body)
+
+    # POST: 세팅 → 사다리 생성 화면
+    players, _ = parse_players()
+    if len(players) < 2:
+        flash("2명 이상 선택하세요.", "warning")
+        return redirect(url_for("ladder_game"))
+
+    n = len(players)            # 세로줄 개수
+    levels = max(8, n * 3)      # 가로줄 레벨 수
+    prob = 0.28                 # 한 레벨에서 가로줄이 생길 확률
+
+    # 가로줄 생성 (인접/겹침 방지)
+    rungs = []  # [{level, col}]  (col <-> col+1 연결)
+    last_at_level = {lv: -10 for lv in range(levels)}
+    for lv in range(levels):
+        for col in range(n - 1):
+            # 같은 레벨에서 서로 바로 붙은 가로줄 방지
+            if last_at_level[lv] == col - 1:
+                continue
+            if random.random() < prob:
+                rungs.append({"level": lv, "col": col})
+                last_at_level[lv] = col
+
+    # 도착 위치 계산(서버 쪽에서도 검증)
+    def simulate_end_positions(n, levels, rungs):
+        # 빠른 조회를 위해 set/dict
+        rung_map = {(r["level"], r["col"]) for r in rungs}
+        ends = []
+        for start in range(n):
+            pos = start
+            for lv in range(levels):
+                if (lv, pos) in rung_map:
+                    pos += 1
+                elif (lv, pos - 1) in rung_map:
+                    pos -= 1
+            ends.append(pos)
+        return ends
+
+    end_positions = simulate_end_positions(n, levels, rungs)
+
+    DATA = json.dumps(
+        {"players": players, "levels": levels, "rungs": rungs, "end_positions": end_positions},
+        ensure_ascii=False,
+    )
+
+    # 렌더: SVG 사다리 + 애니메이션
     body = f"""
-    <div class="card shadow-sm"><div class="card-body">
-      <h5 class="card-title">사다리 게임</h5>
-      <form method="post">
-        <div class="mb-2">
-          <label class="form-label">플레이어</label>
-          <select class="form-select" name="players" multiple size="6">{opts}</select>
-          <div class="form-text">게스트는 아래에 입력</div>
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">🪜 사다리 진행</h5>
+        <div class="mb-2"><b>이번 순번:</b> <span id="turnName"></span></div>
+
+        <div class="mb-3" style="overflow:auto">
+          <svg id="ladder" width="100%" height="560"></svg>
         </div>
-        <div class="mb-2">
-          <label class="form-label">게스트 (쉼표로 구분)</label>
-          <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
+
+        <div class="d-flex gap-2 mb-3">
+          <button id="startBtn" class="btn btn-success">애니메이션 시작</button>
         </div>
-        <button class="btn btn-primary">게임 시작</button>
-        <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
-      </form>
-    </div></div>
+
+        <div class="card border-0 bg-light">
+          <div class="card-body py-2">
+            <div class="fw-bold mb-1">진행 결과</div>
+            <ul id="resultList" class="mb-0"></ul>
+          </div>
+        </div>
+
+        <form id="saveForm" method="post" class="d-none">
+          <input type="hidden" name="final_payload" id="final_payload">
+        </form>
+
+        <style>
+          .name-badge {{ font-size:.9rem; fill:#666; }}
+          .token {{ transition: transform .12s linear; }}
+          .done {{ opacity:.85; }}
+          .loser {{ fill:#dc3545; }}
+        </style>
+
+        <script>
+          const DATA = {DATA};
+          const svg = document.getElementById('ladder');
+          const resultList = document.getElementById('resultList');
+          const turnName = document.getElementById('turnName');
+          const startBtn = document.getElementById('startBtn');
+
+          const N = DATA.players.length;
+          const LEVELS = DATA.levels;
+          const WIDTH = Math.max(640, 90 * N);
+          const HEIGHT = 540;
+          svg.setAttribute('viewBox', `0 0 ${WIDTH} ${HEIGHT}`);
+
+          // 레이아웃
+          const PADX = 60;            // 좌우 여백
+          const PADY = 40;            // 상하 여백
+          const COL_W = (WIDTH - PADX*2) / (N - 1);
+          const STEP_H = (HEIGHT - PADY*2) / (LEVELS + 1);
+
+          // 배경 그리기
+          const g = document.createElementNS("http://www.w3.org/2000/svg","g");
+          svg.appendChild(g);
+
+          // 세로줄
+          for (let i=0;i<N;i++) {{
+            const x = PADX + i*COL_W;
+            const line = document.createElementNS(svg.namespaceURI,'line');
+            line.setAttribute('x1', x); line.setAttribute('y1', PADY);
+            line.setAttribute('x2', x); line.setAttribute('y2', HEIGHT-PADY);
+            line.setAttribute('stroke', '#999'); line.setAttribute('stroke-width', 2);
+            g.appendChild(line);
+
+            // 시작 라벨
+            const label = document.createElementNS(svg.namespaceURI,'text');
+            label.setAttribute('x', x); label.setAttribute('y', PADY-12);
+            label.setAttribute('text-anchor','middle');
+            label.setAttribute('class','name-badge');
+            label.textContent = DATA.players[i];
+            g.appendChild(label);
+          }}
+
+          // 가로줄
+          DATA.rungs.forEach((r) => {{
+            const y = PADY + (r.level+1)*STEP_H;
+            const x1 = PADX + r.col*COL_W;
+            const x2 = PADX + (r.col+1)*COL_W;
+            const rung = document.createElementNS(svg.namespaceURI,'line');
+            rung.setAttribute('x1', x1); rung.setAttribute('y1', y);
+            rung.setAttribute('x2', x2); rung.setAttribute('y2', y);
+            rung.setAttribute('stroke', '#666'); rung.setAttribute('stroke-width', 3);
+            g.appendChild(rung);
+          }});
+
+          // 토큰 만들기 (원)
+          const tokens = [];
+          for (let i=0;i<N;i++) {{
+            const x = PADX + i*COL_W;
+            const y = PADY - 8;
+            const c = document.createElementNS(svg.namespaceURI,'circle');
+            c.setAttribute('r', 8);
+            c.setAttribute('cx', 0); c.setAttribute('cy', 0);
+            c.setAttribute('class', 'token');
+            c.setAttribute('transform', `translate(${x}, ${y})`);
+            c.setAttribute('fill', '#0d6efd');
+            svg.appendChild(c);
+            tokens.push(c);
+          }}
+
+          // 빠른 조회용 셋
+          const rungSet = new Set(DATA.rungs.map(r => `${{r.level}}:${{r.col}}`));
+
+          // 애니메이션 파라미터 (조금 천천히)
+          const V_STEP = 120;   // 수직 이동 소요(ms)
+          const H_STEP = 120;   // 수평 이동 소요(ms)
+
+          function sleep(ms) {{ return new Promise(res => setTimeout(res, ms)); }}
+
+          async function animateOne(idx) {{
+            let col = idx;
+            let x = PADX + col*COL_W;
+            let y = PADY - 8;
+
+            turnName.textContent = DATA.players[idx];
+
+            for (let lv=0; lv<LEVELS; lv++) {{
+              // 수직으로 다음 레벨까지 이동
+              const ny = PADY + (lv+1)*STEP_H;
+              await moveTo(tokens[idx], x, y, x, ny, V_STEP);
+              y = ny;
+
+              // 가로줄 확인: 오른쪽으로 연결?
+              if (rungSet.has(`${{lv}}:${{col}}`)) {{
+                const nx = PADX + (col+1)*COL_W;
+                await moveTo(tokens[idx], x, y, nx, y, H_STEP);
+                col = col + 1; x = nx;
+              }} else if (rungSet.has(`${{lv}}:${{col-1}}`)) {{
+                const nx = PADX + (col-1)*COL_W;
+                await moveTo(tokens[idx], x, y, nx, y, H_STEP);
+                col = col - 1; x = nx;
+              }}
+            }}
+
+            tokens[idx].classList.add('done');
+
+            // 결과 누적 표시
+            const li = document.createElement('li');
+            li.innerHTML = `${{DATA.players[idx]}} → <b>${{col+1}}번 줄</b>`;
+            resultList.appendChild(li);
+
+            return col; // 도착열
+          }}
+
+          function moveTo(el, x1,y1, x2,y2, dur) {{
+            return new Promise(res => {{
+              const steps = 8;
+              let k = 0;
+              const dx = (x2 - x1)/steps;
+              const dy = (y2 - y1)/steps;
+              const t = setInterval(() => {{
+                k++;
+                const nx = x1 + dx*k;
+                const ny = y1 + dy*k;
+                el.setAttribute('transform', `translate(${nx}, ${ny})`);
+                if (k >= steps) {{ clearInterval(t); res(); }}
+              }}, Math.max(16, Math.floor(dur/steps)));
+            }});
+          }}
+
+          async function runAll() {{
+            startBtn.disabled = true;
+            const ends = [];
+            for (let i=0;i<N;i++) {{
+              const dest = await animateOne(i);
+              ends.push(dest);
+            }}
+
+            // 호구 계산: 맨 오른쪽 도착자
+            const maxPos = Math.max(...ends);
+            const loserIdx = ends.indexOf(maxPos);
+            tokens[loserIdx].classList.add('loser');
+
+            // 서버로 저장
+            const payload = {{
+              players: DATA.players,
+              levels: DATA.levels,
+              rungs: DATA.rungs,
+              end_positions: ends
+            }};
+            document.getElementById('final_payload').value = JSON.stringify(payload);
+            document.getElementById('saveForm').submit();
+          }}
+
+          startBtn.addEventListener('click', runAll);
+          turnName.textContent = DATA.players[0];
+        </script>
+      </div>
+    </div>
     """
     return render(body)
 
