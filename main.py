@@ -289,9 +289,7 @@ header.topbar .nav.nav-pills.nav-convex .nav-link:focus {
 </body>
 </html>
 """
-</body>
-</html>
-"""
+
 def render(body_html, **ctx):
     # BASE 템플릿에 body_html 꽂아서 렌더
     return render_template_string(BASE, body=body_html, **ctx)
