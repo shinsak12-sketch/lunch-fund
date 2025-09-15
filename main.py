@@ -1649,70 +1649,12 @@ def dice_game():
     """
     return render(body)
 
-# ------------------ 사다리 게임 (애니메이션/SVG) ------------------
-@app.route("/games/ladder", methods=["GET","POST"])
+# ------------------ 사다리 게임 (SVG 애니메이션) ------------------
+@app.route("/games/ladder", methods=["GET", "POST"])
 def ladder_game():
     members = get_members()
 
-    # 최종 저장 단계
-    final_payload = request.form.get("final_payload")
-    if final_payload:
-        try:
-            payload = json.loads(final_payload)
-            players = payload["players"]
-            levels = int(payload["levels"])
-            rungs = payload["rungs"]  # [{level:int, col:int}]  (col ~ col+1 연결)
-            end_positions = payload["end_positions"]  # 각 시작열이 최종 어디로 도착했는지
-        except Exception:
-            flash("결과 데이터가 올바르지 않습니다.", "danger")
-            return redirect(url_for("ladder_game"))
-
-        # 맨 오른쪽(가장 큰 인덱스) 도착자가 호구
-        loser_index = end_positions.index(max(end_positions))
-        loser = players[loser_index]
-
-        rule_text = "사다리 랜덤 매칭 (가장 오른쪽 도착자가 호구)"
-        upsert_hogu_loss(loser, 1)
-        db_execute(
-            "INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?)",
-            (
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "ladder",
-                rule_text,
-                json.dumps(players, ensure_ascii=False),
-                loser,
-                json.dumps({"levels": levels, "rungs": rungs, "end_positions": end_positions}, ensure_ascii=False),
-            ),
-        )
-        get_db().commit()
-
-        # 표 렌더
-        rows = ""
-        for i, p in enumerate(players):
-            rows += f"<tr{' class=\"table-danger\"' if i==loser_index else ''}><td>{html_escape(p)}</td><td class='num'>{end_positions[i]+1}번 줄</td></tr>"
-
-        body = f"""
-        <div class="card shadow-sm">
-          <div class="card-body">
-            <h5 class="card-title">🎉 결과</h5>
-            <div class="mb-2 text-muted">{html_escape(rule_text)}</div>
-            <div class="table-responsive">
-              <table class="table table-sm align-middle">
-                <thead><tr><th>이름</th><th class='text-end'>도착 위치</th></tr></thead>
-                <tbody>{rows}</tbody>
-              </table>
-            </div>
-            <div class="alert alert-success"><b>호구:</b> {html_escape(loser)}</div>
-            <div class="d-flex gap-2">
-              <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">게임 홈</a>
-              <a class="btn btn-primary" href="{ url_for('ladder_game') }">다시 하기</a>
-            </div>
-          </div>
-        </div>
-        """
-        return render(body)
-
-    # GET: 선택 폼
+    # GET: 설정 폼
     if request.method == "GET":
         opts = "".join([f"<option value='{m}'>{m}</option>" for m in members])
         body = f"""
@@ -1720,8 +1662,23 @@ def ladder_game():
           <h5 class="card-title">사다리 게임</h5>
           <form method="post">
             <div class="mb-2">
-              <label class="form-label">플레이어(다중선택)</label>
-              <select class="form-select" name="players" multiple size="6">{opts}</select>
+              <label class="form-label">플레이어</label>
+              <select class="form-select" name="players" multiple size="8">{opts}</select>
+              <div class="form-text">모바일은 길게 눌러 다중선택. 게스트는 아래에 입력</div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label">게스트 (쉼표로 구분)</label>
+              <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
+            </div>
+            <div class="mb-2">
+              <label class="form-label">사다리 가로줄 개수(난이도)</label>
+              <input class="form-control" type="number" name="steps" value="12" min="6" max="30">
+              <div class="form-text">값이 클수록 세로 높이가 커집니다.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">가로줄 생성 확률(0.1 ~ 0.6)</label>
+              <input class="form-control" type="number" name="rung_prob" value="0.35" min="0.1" max="0.6" step="0.05">
+              <div class="form-text">확률이 높을수록 가로줄이 많아집니다.</div>
             </div>
             <button class="btn btn-primary">게임 시작</button>
             <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
@@ -1730,241 +1687,239 @@ def ladder_game():
         """
         return render(body)
 
-    # POST: 세팅 → 사다리 생성 화면
+    # POST: 보드 생성 + 결과 계산 + 애니메이션 화면
     players, _ = parse_players()
     if len(players) < 2:
         flash("2명 이상 선택하세요.", "warning")
         return redirect(url_for("ladder_game"))
 
-    n = len(players)            # 세로줄 개수
-    levels = max(8, n * 3)      # 가로줄 레벨 수
-    prob = 0.28                 # 한 레벨에서 가로줄이 생길 확률
+    cols = len(players)
+    WIDTH, HEIGHT = 440, 440  # SVG 기본 크기
+    steps = max(6, min(30, int(request.form.get("steps") or 12)))
+    rung_prob = float(request.form.get("rung_prob") or 0.35)
+    rung_prob = max(0.1, min(0.6, rung_prob))
 
-    # 가로줄 생성 (인접/겹침 방지)
-    rungs = []  # [{level, col}]  (col <-> col+1 연결)
-    last_at_level = {lv: -10 for lv in range(levels)}
-    for lv in range(levels):
-        for col in range(n - 1):
-            # 같은 레벨에서 서로 바로 붙은 가로줄 방지
-            if last_at_level[lv] == col - 1:
-                continue
-            if random.random() < prob:
-                rungs.append({"level": lv, "col": col})
-                last_at_level[lv] = col
+    # 가로줄 생성 (level: 0~steps-1, col: 세로줄 인덱스 0~cols-2 사이에서 오른쪽으로 연결)
+    rungs = []
+    for level in range(steps):
+        for col in range(cols - 1):
+            if random.random() < rung_prob:
+                rungs.append({"level": level, "col": col})
 
-    # 도착 위치 계산(서버 쪽에서도 검증)
-    def simulate_end_positions(n, levels, rungs):
-        # 빠른 조회를 위해 set/dict
-        rung_map = {(r["level"], r["col"]) for r in rungs}
-        ends = []
-        for start in range(n):
-            pos = start
-            for lv in range(levels):
-                if (lv, pos) in rung_map:
-                    pos += 1
-                elif (lv, pos - 1) in rung_map:
-                    pos -= 1
-            ends.append(pos)
-        return ends
+    # 최종 위치 계산(애니메이션과 동일한 규칙)
+    rung_set = {(r["level"], r["col"]) for r in rungs}
+    end_positions = []
+    for start_col in range(cols):
+        c = start_col
+        for level in range(steps):
+            if (level, c) in rung_set:       # 오른쪽 가로줄 시작
+                c += 1
+            elif (level, c - 1) in rung_set: # 왼쪽에서 온 가로줄의 끝
+                c -= 1
+        end_positions.append(c)
 
-    end_positions = simulate_end_positions(n, levels, rungs)
+    # 호구: 가장 오른쪽(최대 인덱스)에 도착한 사람
+    loser_index = end_positions.index(max(end_positions))
+    loser = players[loser_index]
 
+    # 기록 반영
+    upsert_hogu_loss(loser, 1)
+    rule_text = f"사다리: steps={steps}, prob={rung_prob:.2f} (오른쪽 끝이 호구)"
+    db_execute(
+        "INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?);",
+        (
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "ladder",
+            rule_text,
+            json.dumps(players, ensure_ascii=False),
+            loser,
+            json.dumps({"rungs": rungs, "end_positions": end_positions}, ensure_ascii=False),
+        ),
+    )
+    get_db().commit()
+
+    # 애니메이션 렌더
     DATA = json.dumps(
-        {"players": players, "levels": levels, "rungs": rungs, "end_positions": end_positions},
+        {
+            "players": players,
+            "rungs": rungs,
+            "cols": cols,
+            "steps": steps,
+            "width": WIDTH,
+            "height": HEIGHT,
+            "end_positions": end_positions,
+            "loser": loser,
+        },
         ensure_ascii=False,
     )
 
-    # 렌더: SVG 사다리 + 애니메이션
     body = f"""
     <div class="card shadow-sm">
       <div class="card-body">
-        <h5 class="card-title">🪜 사다리 진행</h5>
-        <div class="mb-2"><b>이번 순번:</b> <span id="turnName"></span></div>
+        <h5 class="card-title">사다리 게임</h5>
+        <div class="mb-2 text-muted">룰: 오른쪽 끝에 도착한 사람이 <b>호구</b> 🤡</div>
 
-        <div class="mb-3" style="overflow:auto">
-          <svg id="ladder" width="100%" height="560"></svg>
+        <div class="mb-2">
+          <div class="fw-bold">참가자</div>
+          <div>{', '.join(players)}</div>
         </div>
 
-        <div class="d-flex gap-2 mb-3">
-          <button id="startBtn" class="btn btn-success">애니메이션 시작</button>
+        <div id="ladder-container" class="mb-3"></div>
+
+        <div class="d-flex gap-2 mb-2">
+          <button class="btn btn-primary" id="btnStart">애니메이션 시작</button>
+          <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">게임 홈</a>
+          <a class="btn btn-outline-primary" href="{ url_for('ladder_game') }">다시 하기</a>
         </div>
 
-        <div class="card border-0 bg-light">
-          <div class="card-body py-2">
-            <div class="fw-bold mb-1">진행 결과</div>
-            <ul id="resultList" class="mb-0"></ul>
-          </div>
-        </div>
-
-        <form id="saveForm" method="post" class="d-none">
-          <input type="hidden" name="final_payload" id="final_payload">
-        </form>
-
-        <style>
-          .name-badge {{ font-size:.9rem; fill:#666; }}
-          .token {{ transition: transform .12s linear; }}
-          .done {{ opacity:.85; }}
-          .loser {{ fill:#dc3545; }}
-        </style>
-
-        <script>
-          const DATA = {DATA};
-          const svg = document.getElementById('ladder');
-          const resultList = document.getElementById('resultList');
-          const turnName = document.getElementById('turnName');
-          const startBtn = document.getElementById('startBtn');
-
-          const N = DATA.players.length;
-          const LEVELS = DATA.levels;
-          const WIDTH = Math.max(640, 90 * N);
-          const HEIGHT = 540;
-          svg.setAttribute('viewBox', `0 0 ${WIDTH} ${HEIGHT}`);
-
-          // 레이아웃
-          const PADX = 60;            // 좌우 여백
-          const PADY = 40;            // 상하 여백
-          const COL_W = (WIDTH - PADX*2) / (N - 1);
-          const STEP_H = (HEIGHT - PADY*2) / (LEVELS + 1);
-
-          // 배경 그리기
-          const g = document.createElementNS("http://www.w3.org/2000/svg","g");
-          svg.appendChild(g);
-
-          // 세로줄
-          for (let i=0;i<N;i++) {{
-            const x = PADX + i*COL_W;
-            const line = document.createElementNS(svg.namespaceURI,'line');
-            line.setAttribute('x1', x); line.setAttribute('y1', PADY);
-            line.setAttribute('x2', x); line.setAttribute('y2', HEIGHT-PADY);
-            line.setAttribute('stroke', '#999'); line.setAttribute('stroke-width', 2);
-            g.appendChild(line);
-
-            // 시작 라벨
-            const label = document.createElementNS(svg.namespaceURI,'text');
-            label.setAttribute('x', x); label.setAttribute('y', PADY-12);
-            label.setAttribute('text-anchor','middle');
-            label.setAttribute('class','name-badge');
-            label.textContent = DATA.players[i];
-            g.appendChild(label);
-          }}
-
-          // 가로줄
-          DATA.rungs.forEach((r) => {{
-            const y = PADY + (r.level+1)*STEP_H;
-            const x1 = PADX + r.col*COL_W;
-            const x2 = PADX + (r.col+1)*COL_W;
-            const rung = document.createElementNS(svg.namespaceURI,'line');
-            rung.setAttribute('x1', x1); rung.setAttribute('y1', y);
-            rung.setAttribute('x2', x2); rung.setAttribute('y2', y);
-            rung.setAttribute('stroke', '#666'); rung.setAttribute('stroke-width', 3);
-            g.appendChild(rung);
-          }});
-
-          // 토큰 만들기 (원)
-          const tokens = [];
-          for (let i=0;i<N;i++) {{
-            const x = PADX + i*COL_W;
-            const y = PADY - 8;
-            const c = document.createElementNS(svg.namespaceURI,'circle');
-            c.setAttribute('r', 8);
-            c.setAttribute('cx', 0); c.setAttribute('cy', 0);
-            c.setAttribute('class', 'token');
-            c.setAttribute('transform', `translate(${x}, ${y})`);
-            c.setAttribute('fill', '#0d6efd');
-            svg.appendChild(c);
-            tokens.push(c);
-          }}
-
-          // 빠른 조회용 셋
-          const rungSet = new Set(DATA.rungs.map(r => `${{r.level}}:${{r.col}}`));
-
-          // 애니메이션 파라미터 (조금 천천히)
-          const V_STEP = 120;   // 수직 이동 소요(ms)
-          const H_STEP = 120;   // 수평 이동 소요(ms)
-
-          function sleep(ms) {{ return new Promise(res => setTimeout(res, ms)); }}
-
-          async function animateOne(idx) {{
-            let col = idx;
-            let x = PADX + col*COL_W;
-            let y = PADY - 8;
-
-            turnName.textContent = DATA.players[idx];
-
-            for (let lv=0; lv<LEVELS; lv++) {{
-              // 수직으로 다음 레벨까지 이동
-              const ny = PADY + (lv+1)*STEP_H;
-              await moveTo(tokens[idx], x, y, x, ny, V_STEP);
-              y = ny;
-
-              // 가로줄 확인: 오른쪽으로 연결?
-              if (rungSet.has(`${{lv}}:${{col}}`)) {{
-                const nx = PADX + (col+1)*COL_W;
-                await moveTo(tokens[idx], x, y, nx, y, H_STEP);
-                col = col + 1; x = nx;
-              }} else if (rungSet.has(`${{lv}}:${{col-1}}`)) {{
-                const nx = PADX + (col-1)*COL_W;
-                await moveTo(tokens[idx], x, y, nx, y, H_STEP);
-                col = col - 1; x = nx;
-              }}
-            }}
-
-            tokens[idx].classList.add('done');
-
-            // 결과 누적 표시
-            const li = document.createElement('li');
-            li.innerHTML = `${{DATA.players[idx]}} → <b>${{col+1}}번 줄</b>`;
-            resultList.appendChild(li);
-
-            return col; // 도착열
-          }}
-
-          function moveTo(el, x1,y1, x2,y2, dur) {{
-            return new Promise(res => {{
-              const steps = 8;
-              let k = 0;
-              const dx = (x2 - x1)/steps;
-              const dy = (y2 - y1)/steps;
-              const t = setInterval(() => {{
-                k++;
-                const nx = x1 + dx*k;
-                const ny = y1 + dy*k;
-                el.setAttribute('transform', `translate(${nx}, ${ny})`);
-                if (k >= steps) {{ clearInterval(t); res(); }}
-              }}, Math.max(16, Math.floor(dur/steps)));
-            }});
-          }}
-
-          async function runAll() {{
-            startBtn.disabled = true;
-            const ends = [];
-            for (let i=0;i<N;i++) {{
-              const dest = await animateOne(i);
-              ends.push(dest);
-            }}
-
-            // 호구 계산: 맨 오른쪽 도착자
-            const maxPos = Math.max(...ends);
-            const loserIdx = ends.indexOf(maxPos);
-            tokens[loserIdx].classList.add('loser');
-
-            // 서버로 저장
-            const payload = {{
-              players: DATA.players,
-              levels: DATA.levels,
-              rungs: DATA.rungs,
-              end_positions: ends
-            }};
-            document.getElementById('final_payload').value = JSON.stringify(payload);
-            document.getElementById('saveForm').submit();
-          }}
-
-          startBtn.addEventListener('click', runAll);
-          turnName.textContent = DATA.players[0];
-        </script>
+        <div id="resultBox" class="alert alert-info d-none"></div>
+        <ul id="progressList" class="mt-3"></ul>
       </div>
     </div>
+
+    <style>
+      #ladder-container svg {{ max-width: 100%; height: 420px; }}
+      .dot {{ transition: transform .04s linear; }}
+      .loser-line {{ stroke: #dc3545; stroke-width: 3; }}
+    </style>
+
+    <script>
+    const DATA = {DATA};
+
+    const WIDTH = DATA.width, HEIGHT = DATA.height;
+    const colGap = WIDTH / (DATA.cols - 1);
+    const rowGap = HEIGHT / DATA.steps;
+
+    // SVG 초기화
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", `0 0 ${{WIDTH}} ${{HEIGHT}}`);
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "420");
+    document.getElementById("ladder-container").appendChild(svg);
+
+    // 세로줄
+    for (let i = 0; i < DATA.cols; i++) {{
+      const x = i * colGap;
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", x);
+      line.setAttribute("x2", x);
+      line.setAttribute("y1", 0);
+      line.setAttribute("y2", HEIGHT);
+      line.setAttribute("stroke", "#222");
+      svg.appendChild(line);
+
+      // 상단 이름
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t.setAttribute("x", x);
+      t.setAttribute("y", -8);
+      t.setAttribute("text-anchor", "middle");
+      t.setAttribute("font-size", "12");
+      t.textContent = DATA.players[i];
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("transform", "translate(0, 16)");
+      g.appendChild(t);
+      svg.appendChild(g);
+    }}
+
+    // 가로줄
+    DATA.rungs.forEach(r => {{
+      const x = r.col * colGap;
+      const y = r.level * rowGap;
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", x);
+      line.setAttribute("x2", x + colGap);
+      line.setAttribute("y1", y);
+      line.setAttribute("y2", y);
+      line.setAttribute("stroke", "#666");
+      svg.appendChild(line);
+    }});
+
+    // 애니메이션: 플레이어를 한 명씩 내려보내며 경로를 따라 좌/우 이동
+    const rungSet = new Set(DATA.rungs.map(r => `${{r.level}}:${{r.col}}`));
+    const progressList = document.getElementById("progressList");
+    const resultBox = document.getElementById("resultBox");
+
+    function sleep(ms) {{ return new Promise(r => setTimeout(r, ms)); }}
+
+    async function runPlayer(idx) {{
+      let col = idx;
+      let x = col * colGap;
+      let y = 0;
+
+      // 점 표시
+      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dot.setAttribute("r", 6);
+      dot.setAttribute("fill", "#0d6efd");
+      dot.setAttribute("class", "dot");
+      svg.appendChild(dot);
+
+      // 세로로 한 칸씩 내려가며 체크
+      for (let level = 0; level < DATA.steps; level++) {{
+        // 아래로 이동 (조금 느리게)
+        const targetY = (level + 1) * rowGap;
+        for (let yy = y; yy <= targetY; yy += 6) {{
+          dot.setAttribute("transform", `translate(${{x}}, ${{yy}})`);
+          await sleep(40);
+        }}
+        y = targetY;
+
+        // 가로줄 있나 확인 (오른쪽 우선)
+        if (rungSet.has(`${{level}}:${{col}}`)) {{
+          // 오른쪽으로
+          for (let xx = x; xx <= x + colGap; xx += 8) {{
+            dot.setAttribute("transform", `translate(${{xx}}, ${{y}})`);
+            await sleep(40);
+          }}
+          x += colGap; col += 1;
+        }} else if (rungSet.has(`${{level}}:${{col-1}}`)) {{
+          // 왼쪽으로
+          for (let xx = x; xx >= x - colGap; xx -= 8) {{
+            dot.setAttribute("transform", `translate(${{xx}}, ${{y}})`);
+            await sleep(40);
+          }}
+          x -= colGap; col -= 1;
+        }}
+      }}
+
+      // 진행 로그
+      const li = document.createElement("li");
+      li.innerHTML = `${{DATA.players[idx]}} → <b>${{col + 1}}번 줄</b>`;
+      progressList.appendChild(li);
+
+      return col;
+    }}
+
+    async function start() {{
+      document.getElementById("btnStart").disabled = true;
+      progressList.innerHTML = "";
+      resultBox.classList.add("d-none");
+      const finals = [];
+      for (let i = 0; i < DATA.players.length; i++) {{
+        finals[i] = await runPlayer(i);
+      }}
+
+      // 호구 표시
+      const maxCol = Math.max(...finals);
+      const loserIdx = finals.indexOf(maxCol);
+      resultBox.classList.remove("d-none");
+      resultBox.classList.replace("alert-info", "alert-success");
+      resultBox.innerHTML = `참가자: ${{DATA.players.join(", ")}}<br><b>호구: ${{DATA.players[loserIdx]}}</b>`;
+
+      // 도착선 강조
+      const x = maxCol * colGap;
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", x);
+      line.setAttribute("x2", x);
+      line.setAttribute("y1", 0);
+      line.setAttribute("y2", HEIGHT);
+      line.setAttribute("class", "loser-line");
+      svg.appendChild(line);
+    }}
+
+    document.getElementById("btnStart").addEventListener("click", start);
+    </script>
     """
+
     return render(body)
 
 # ------------------ 외톨이 카드(페어+1, 조커 5:5) ------------------
