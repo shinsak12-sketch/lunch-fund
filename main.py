@@ -1676,646 +1676,85 @@ def ladder_game():
         """
         return render(body)
 
-    # ---------- POST: 보드 생성 ----------
-    players, _ = parse_players()
-    n = len(players)
-    if n < 2:
-        flash("2명 이상 선택하세요.", "warning")
-        return redirect(url_for("ladder_game"))
+# ===== 외톨이게임: Flask 라우트 (복붙용, 안전버전) =====
+from flask import request, render_template_string
+import random, re
 
-    import random as _rand
-
-    # SVG 레이아웃
-    LANE_GAP = 140
-    TOP, BOTTOM = 60, 500
-    LEFT = 80
-    WIDTH = LEFT + (n - 1) * LANE_GAP + 80
-    HEIGHT = BOTTOM + 70
-    STEP = 60
-    y_levels = list(range(TOP + STEP, BOTTOM - STEP + 1, STEP))
-
-    # 가로줄 생성: 같은 y에서 이웃 중복 금지
-    rungs = []
-    for y in y_levels:
-        used = set()
-        for i in _rand.sample(range(n - 1), k=(n - 1)):
-            if i in used or (i - 1) in used or (i + 1) in used:
-                continue
-            if _rand.random() < 0.45:
-                rungs.append((i, y)); used.add(i)
-        # y에 아무 것도 없을 때 소량 보정
-        if not any(yy == y for _, yy in rungs) and (n >= 3) and _rand.random() < 0.25:
-            i = _rand.randrange(0, n - 1)
-            if i not in used and (i - 1) not in used and (i + 1) not in used:
-                rungs.append((i, y))
-
-    # 경로 계산용 자료구조
-    y_sorted = sorted({y for _, y in rungs})
-    rungs_by_y = {y: set(i for i, yy in rungs if yy == y) for y in y_sorted}
-
-    def traverse(col: int) -> int:
-        c = col
-        for y in y_sorted:
-            if c in rungs_by_y[y]: c += 1
-            elif (c - 1) in rungs_by_y[y]: c -= 1
-        return c
-
-    end_cols = [traverse(c) for c in range(n)]
-    # 혹시라도 중복이 생기면(안전장치)
-    if len(set(end_cols)) != n:
-        order = list(range(n)); _rand.shuffle(order); end_cols = order
-
-    # ----- 바닥 슬롯: 호구 1 + 조커 1 + 승리 K(최대 3), 나머지 일반 -----
-    win_count = max(0, min(3, n - 2))
-    outcomes = ["일반"] * n
-    slots = list(range(n)); _rand.shuffle(slots)
-    outcomes[slots.pop()] = "호구"
-    outcomes[slots.pop()] = "조커"
-    for _ in range(win_count):
-        outcomes[slots.pop()] = "승리"
-
-    xs = [LEFT + i * LANE_GAP for i in range(n)]
-
-    DATA = {
-        "players": players,
-        "xs": xs,
-        "TOP": TOP, "BOTTOM": BOTTOM,
-        "WIDTH": WIDTH, "HEIGHT": HEIGHT,
-        "rungs": rungs,         # [i, y]
-        "end_cols": end_cols,   # 각 플레이어 도착 열
-        "outcomes": outcomes    # 각 열의 결과
+LONER_TEMPLATE = """
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>외톨이 카드</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .card-wrap { display:flex; flex-direction:column; align-items:center; gap:8px; position:relative; }
+    .card-name { font-weight:600; }
+    .playing-card { width:120px; height:170px; perspective:1000px; }
+    .playing-card .inner { position:relative; width:100%; height:100%; transition:transform .5s; transform-style:preserve-3d; }
+    .playing-card.flip .inner { transform: rotateY(180deg); }
+    .playing-card .face, .playing-card .back {
+      position:absolute; inset:0; border-radius:10px; backface-visibility:hidden;
+      display:flex; align-items:center; justify-content:center; font-size:28px;
+      border:1px solid #ddd; background:#fff;
     }
-    DATA_JSON = json.dumps(DATA, ensure_ascii=False)
-
-    body = f"""
-    <style>
-      .ladder-wrap {{ overflow-x:auto; }}
-      svg.ladder {{ width:100%; height:auto; background:#fff; }}
-      .v {{ stroke:#777; stroke-width:2; }}
-      .h {{ stroke:#cc3d3d; stroke-width:2; }}
-      .path {{ stroke:#e03131; stroke-width:3; fill:none; }}
-      .runner {{ fill:#e03131; }}
-      .lbl {{ font-size:13px; fill:#333; }}
-      .slot {{ font-size:12px; }}
-      .slot.win {{ fill:#2b8a3e; font-weight:700; }}
-      .slot.joker {{ fill:#1c7ed6; font-weight:700; }}
-      .slot.bad {{ fill:#e03131; font-weight:700; }}
-      .result-box .loser {{ color:#e03131; font-weight:700; }}
-    </style>
-
-    <div class="mb-2">참가자: {', '.join(html_escape(p) for p in players)}</div>
-
-    <div class="ladder-wrap">
-      <svg id="ladder" class="ladder"></svg>
-    </div>
-
-    <div class="my-2 d-flex gap-2">
-      <button class="btn btn-outline-primary btn-sm" id="btnPlay">애니메이션 시작</button>
-      <a class="btn btn-outline-secondary btn-sm" href="{ url_for('games_home') }">게임 홈</a>
-      <a class="btn btn-outline-dark btn-sm" href="{ url_for('ladder_game') }">다시 하기</a>
-    </div>
-
-    <div class="alert alert-info" id="jokerBox" style="display:none;"></div>
-    <div class="alert alert-success result-box" id="finalBox" style="display:none;"></div>
-    <ul class="mt-2">{''.join(f"<li id='mrow{i}'></li>" for i in range(n))}</ul>
-
-    <script>
-      const DATA = {DATA_JSON};
-      const svg = document.getElementById('ladder');
-      svg.setAttribute("viewBox", "0 0 " + DATA.WIDTH + " " + DATA.HEIGHT);
-
-      function line(x1,y1,x2,y2,cls){{
-        const el = document.createElementNS("http://www.w3.org/2000/svg","line");
-        el.setAttribute("x1",x1); el.setAttribute("y1",y1);
-        el.setAttribute("x2",x2); el.setAttribute("y2",y2);
-        el.setAttribute("class",cls); return el;
-      }}
-      function text(x,y,t,cls){{
-        const el = document.createElementNS("http://www.w3.org/2000/svg","text");
-        el.setAttribute("x",x); el.setAttribute("y",y);
-        el.setAttribute("text-anchor","middle");
-        if(cls) el.setAttribute("class",cls);
-        el.textContent = t; return el;
-      }}
-      function circle(x,y,r,cls){{
-        const el = document.createElementNS("http://www.w3.org/2000/svg","circle");
-        el.setAttribute("cx",x); el.setAttribute("cy",y);
-        el.setAttribute("r",r); if(cls) el.setAttribute("class",cls); return el;
-      }}
-
-      // 세로줄/가로줄/이름
-      for(let i=0;i<DATA.xs.length;i++) {{
-        svg.appendChild(line(DATA.xs[i], DATA.TOP, DATA.xs[i], DATA.BOTTOM, "v"));
-        svg.appendChild(text(DATA.xs[i], DATA.TOP-20, DATA.players[i], "lbl"));
-      }}
-      for (const [i,y] of DATA.rungs) {{
-        svg.appendChild(line(DATA.xs[i], y, DATA.xs[i+1], y, "h"));
-      }}
-
-      // 바닥 슬롯
-      for(let c=0;c<DATA.outcomes.length;c++) {{
-        const kind = DATA.outcomes[c];
-        let cls = "slot";
-        if (kind === "승리") cls += " win";
-        else if (kind === "조커") cls += " joker";
-        else if (kind === "호구") cls += " bad";
-        svg.appendChild(text(DATA.xs[c], DATA.BOTTOM+22, kind, cls));
-        svg.appendChild(circle(DATA.xs[c], DATA.BOTTOM, 5, "")); // 바닥 점
-      }}
-
-      // 가로줄 테이블
-      const rMap = new Map();
-      for (const [i,y] of DATA.rungs) {{
-        if (!rMap.has(y)) rMap.set(y,new Set());
-        rMap.get(y).add(i);
-      }}
-      const sortedY = Array.from(rMap.keys()).sort((a,b)=>a-b);
-
-      function buildPath(col){{
-        let c = col; const pts = [[DATA.xs[c], DATA.TOP]];
-        for(const y of sortedY){{
-          pts.push([DATA.xs[c], y]);
-          if (rMap.get(y) && rMap.get(y).has(c)) {{ pts.push([DATA.xs[c+1], y]); c++; }}
-          else if (rMap.get(y) && rMap.get(y).has(c-1)) {{ pts.push([DATA.xs[c-1], y]); c--; }}
-        }}
-        pts.push([DATA.xs[c], DATA.BOTTOM]);
-        return pts;
-      }}
-
-      // 속도 ↑
-      const SPEED = 520; // px/sec
-
-      function animatePath(pts){{
-        const dot = circle(pts[0][0], pts[0][1], 5, "runner");
-        svg.appendChild(dot);
-        const ghost = document.createElementNS("http://www.w3.org/2000/svg","polyline");
-        ghost.setAttribute("fill","none"); ghost.setAttribute("stroke","#e03131");
-        ghost.setAttribute("stroke-width","2"); ghost.setAttribute("opacity","0.15");
-        ghost.setAttribute("points", pts.map(p=>p[0]+","+p[1]).join(" "));
-        svg.appendChild(ghost);
-
-        let seg=0, t0=null;
-        function step(ts){{
-          if(!t0) t0=ts;
-          const [x1,y1]=pts[seg], [x2,y2]=pts[seg+1];
-          const dx=x2-x1, dy=y2-y1, dist=Math.hypot(dx,dy)||1;
-          const u=Math.min(1, ((ts-t0)/1000)*SPEED/dist);
-          dot.setAttribute("cx", x1+dx*u); dot.setAttribute("cy", y1+dy*u);
-          if(u>=1){{ seg++; t0=ts; if(seg>=pts.length-1) return; }}
-          requestAnimationFrame(step);
-        }}
-        return new Promise(res=>{{
-          function watch(){{
-            if(seg>=pts.length-1){{ dot.remove(); ghost.setAttribute("opacity","0.55"); res(); return; }}
-            requestAnimationFrame(step); setTimeout(watch,16);
-          }} watch();
-        }});
-      }}
-
-      // 진행/집계
-      const btn = document.getElementById('btnPlay');
-      const jokerBox = document.getElementById('jokerBox');
-      const finalBox = document.getElementById('finalBox');
-
-      let baseLoser = null;         // 바닥 "호구"에 도착한 사람(없을 수 있음)
-      let jokerHolder = null;       // 바닥 "조커"에 도착한 사람(항상 0 또는 1명)
-      const winners = new Set();    // 바닥 "승리"에 도착한 사람들
-
-      function setRow(i, html) {{
-        document.getElementById("mrow"+i).innerHTML = html;
-      }}
-
-      async function runAll(){{
-        btn.disabled = true;
-        // 1) 개별 이동 + 기본 결과 표시(조커 효과는 아직 적용 X)
-        for (let i=0;i<DATA.players.length;i++) {{
-          const name = DATA.players[i];
-          const pts = buildPath(i);
-          await animatePath(pts);
-
-          const destCol = DATA.end_cols[i];
-          const slot = DATA.outcomes[destCol];
-
-          if (slot === "호구") baseLoser = name;
-          else if (slot === "승리") winners.add(name);
-          else if (slot === "조커") jokerHolder = name;
-
-          setRow(i, `${'{'}name{'}'} → <b>${'{'}slot{'}'}</b>${'{'}slot==="승리"?" 🎉":""{'}'}`);
-        }}
-
-        // 2) 조커 공개 & 효과 적용(모든 결과 나온 뒤)
-        let finalLoser = baseLoser;
-        let effectText = "(조커 없음)";
-
-        if (jokerHolder) {{
-          // 효과 3종: 승리 / 호구와 체인지(조커가 호구) / 호구 임의 변경(조커 제외 승리자 1명과 호구 스왑)
-          const r = Math.random();
-          if (r < 1/3) {{
-            effectText = "조커 효과: 승리 🎉 (변화 없음)";
-            // finalLoser 유지
-          }} else if (r < 2/3) {{
-            effectText = "조커 효과: 호구와 체인지 → 조커가 호구가 됨";
-            finalLoser = jokerHolder || finalLoser || DATA.players[0];
-          }} else {{
-            // 승리자 중(조커 제외) 한 명과 호구 스왑
-            const cand = Array.from(winners).filter(p => p !== jokerHolder);
-            if (cand.length > 0) {{
-              const pick = cand[Math.floor(Math.random()*cand.length)];
-              if (finalLoser) {{
-                effectText = `조커 효과: 호구 임의 변경 → 승리자 '${'{'}pick{'}'}'가 호구로`;
-                finalLoser = pick;
-              }} else {{
-                effectText = `조커 효과: 호구 임의 변경 → 호구가 없어서 승리자 '${'{'}pick{'}'}'가 호구로`;
-                finalLoser = pick;
-              }}
-            }} else {{
-              // 승리자가 없을 때의 안전 처리: 조커가 호구로
-              effectText = "조커 효과: 승리자가 없어 조커가 호구로";
-              finalLoser = jokerHolder;
-            }}
-          }}
-
-          jokerBox.style.display = "block";
-          jokerBox.innerHTML = `조커: <b>${'{'}jokerHolder{'}'}</b><br>${'{'}effectText{'}'}`;
-        }}
-
-        // 3) 최종 결과
-        finalBox.style.display = "block";
-        if (!finalLoser) {{
-          finalBox.innerHTML = "호구 없음 (모든 효과 적용 결과)";
-        }} else {{
-          finalBox.innerHTML = "호구: <span class='loser'>" + finalLoser + "</span>";
-        }}
-      }}
-
-      document.getElementById('btnPlay').addEventListener('click', runAll);
-    </script>
-    """
-
-    # 서버에는 보드/슬롯 구성까지만 기록(최종 호구는 클라이언트 조커효과까지 반영 후 확정)
-    db_execute(
-        "INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?);",
-        (
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "ladder",
-            "바닥: 호구·조커·승리 / 조커는 전원 공개 뒤 단일 효과(승리|체인지|임의변경) 적용",
-            json.dumps(players, ensure_ascii=False),
-            None,
-            json.dumps({"rungs": rungs, "end_cols": end_cols, "outcomes": outcomes}, ensure_ascii=False),
-        ),
-    )
-    get_db().commit()
-    return render(body)
-
-# ------------------ 외톨이 카드(페어+1) + 조커 연출 ------------------
-@app.route("/games/oddcard", methods=["GET","POST"])
-def oddcard_game():
-    members = get_members()
-
-    # GET: 게임 설정 폼
-    if request.method == "GET":
-        opts = "".join([f"<option value='{m}'>{m}</option>" for m in members])
-        body = f"""
-        <div class="card shadow-sm"><div class="card-body">
-          <h5 class="card-title">외톨이 카드</h5>
-          <p class="text-muted">
-            홀수 인원만 참여 가능. 2-2 페어 + 1 외톨이(=기본 호구).<br>
-            조커는 게임 종료 후 공개되며 3가지 중 하나가 적용됩니다: 
-            <b>①승리 유지</b> · <b>②호구랑 체인지(조커가 호구)</b> · <b>③호구 임의 변경(승리자 1명과 호구 자리 바꿈)</b>.
-          </p>
-          <form method="post">
-            <div class="mb-2">
-              <label class="form-label">플레이어</label>
-              <select class="form-select" name="players" multiple size="7">{opts}</select>
-              <div class="form-text">모바일은 길게 눌러 다중선택. 게스트는 아래에 쉼표로 입력.</div>
-            </div>
-            <div class="mb-2">
-              <label class="form-label">게스트 (쉼표로 구분)</label>
-              <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
-            </div>
-            <button class="btn btn-primary">게임 시작</button>
-            <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
-          </form>
-        </div></div>
-        """
-        return render(body)
-
-    # POST: 게임 생성
-    players, _ = parse_players()
-    if len(players) < 3 or (len(players) % 2 == 0):
-        flash("홀수 인원 3명 이상이어야 합니다.", "warning")
-        return redirect(url_for("oddcard_game"))
-
-    n = len(players)
-
-    # 카드 구성: 페어 * ((n-1)//2) + 외톨이 1
-    pairs = (n - 1) // 2
-    deck = [f"페어{i+1}" for i in range(pairs) for _ in (0,1)] + ["외톨이"]
-    random.shuffle(deck)
-
-    assignment = dict(zip(players, deck))
-
-    # 기본 호구(외톨이 카드 가진 사람)
-    base_loser = next(p for p, c in assignment.items() if c == "외톨이")
-
-    # 조커는 1/n 확률로 등장 (없을 수도 있음)
-    joker_person = None
-    joker_mode = None   # "keep_win" | "swap_with_hogu" | "swap_hogu_with_random_winner"
-    if random.random() < (1.0 / n):
-        joker_person = random.choice(players)
-        joker_mode = random.choice(["keep_win", "swap_with_hogu", "swap_hogu_with_random_winner"])
-
-    # 최종 호구 계산(조커 규칙 적용)
-    final_loser = base_loser
-    note_lines = []
-
-    if joker_person:
-        if joker_mode == "keep_win":
-            note_lines.append(f"조커({joker_person}) 효과: 승리 유지 🎉")
-            # 변화 없음
-        elif joker_mode == "swap_with_hogu":
-            # 조커가 호구가 됨
-            note_lines.append(f"조커({joker_person}) 효과: 호구랑 체인지 → 조커가 최종 호구 😈")
-            final_loser = joker_person
-        else:
-            # 호구 임의 변경: 조커를 제외한 승리자 중 1명 선택하여 호구와 자리 바꿈
-            winners = [p for p, c in assignment.items() if c != "외톨이" and p != joker_person]
-            if winners:
-                picked = random.choice(winners)
-                note_lines.append(f"조커({joker_person}) 효과: 호구 임의 변경 → (승리자 {picked} ↔ 호구 {base_loser})")
-                if final_loser == base_loser:
-                    final_loser = picked
-
-    # DB 기록 + 카운트
-    upsert_hogu_loss(final_loser, 1)
-    extra = {
-        "assignment": assignment,
-        "base_loser": base_loser,
-        "joker_person": joker_person,
-        "joker_mode": joker_mode,
-        "notes": note_lines,
+    .playing-card .back {
+      background: repeating-linear-gradient(45deg, #0d6efd 0 10px, #0a58ca 10px 20px);
+      color:#fff;
     }
-    db_execute("INSERT INTO games(dt, game_type, rule, participants, winner, loser, extra) VALUES (?,?,?,?,?,?,?);",
-               (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "oddcard",
-                "페어+외톨이, 조커(승리 유지/호구랑 체인지/호구 임의 변경)",
-                json.dumps(players, ensure_ascii=False),
-                None,  # 이 게임은 '최종 호구'만 의미있게 사용
-                final_loser,
-                json.dumps(extra, ensure_ascii=False)))
-    get_db().commit()
+    .playing-card .face { transform: rotateY(180deg); }
+    .badge-joker { background:#ffc107; color:#000; padding:2px 6px; border-radius:6px; font-size:12px; }
+    .badge-win   { background:#198754; color:#fff; padding:2px 6px; border-radius:6px; font-size:12px; position:absolute; right:-6px; top:-6px; }
+    .badge-loser { background:#dc3545; color:#fff; padding:2px 6px; border-radius:6px; font-size:12px; position:absolute; right:-6px; top:-6px; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap:16px; }
+  </style>
+</head>
+<body class="bg-light">
+<div class="container py-4">
 
-    # 프론트 애니메이션용 데이터
-    DATA = json.dumps({
-        "players": players,
-        "assignment": assignment,       # 각 사람의 카드(페어/외톨이)
-        "base_loser": base_loser,
-        "joker_person": joker_person,
-        "joker_mode": joker_mode,
-        "note_lines": note_lines,
-        "final_loser": final_loser
-    }, ensure_ascii=False)
-
-    # 템플릿(카드 뒷면 → 순차 뒤집기 → 조커 메시지 → 최종 호구 알림)
-    body = f"""
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <h5 class="card-title">🃏 외톨이 카드</h5>
-        <div id="stage" class="mb-3"></div>
-        <div class="d-flex gap-2 mb-3">
-          <button id="btnStart" class="btn btn-outline-primary">애니메이션 시작</button>
-          <a class="btn btn-outline-secondary" href="{{{{ url_for('games_home') }}}}">게임 홈</a>
-          <a class="btn btn-primary" href="{{{{ url_for('oddcard_game') }}}}">다시 하기</a>
-        </div>
-
-        <div id="resultBox" class="alert alert-success d-none"></div>
-      </div>
-    </div>
-
-    <style>
-      #stage {{ display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }}
-      .cardwrap {{
-        width:120px; height:170px; position:relative; perspective:800px;
-      }}
-      .name {{ text-align:center; font-weight:600; margin-top:.35rem; }}
-      .flipbox {{
-        width:100%; height:100%; position:relative; transform-style:preserve-3d;
-        transition: transform .45s ease;
-      }}
-      .flipbox.flipped {{ transform: rotateY(180deg); }}
-
-      .face {{
-        position:absolute; inset:0; border-radius:10px; backface-visibility:hidden;
-        box-shadow:0 2px 8px rgba(0,0,0,.12);
-      }}
-      .back {{
-        background:#b80f0f;
-        background-image:
-          radial-gradient(#ffffff66 1.2px, transparent 1.2px),
-          radial-gradient(#ffffff66 1.2px, transparent 1.2px);
-        background-size:10px 10px,10px 10px;
-        background-position:0 0,5px 5px;
-        display:flex; align-items:center; justify-content:center; color:#fff;
-        font-weight:800; font-size:18px;
-      }}
-      .front {{
-        background:#fff; transform:rotateY(180deg); display:flex;
-        align-items:center; justify-content:center; border:2px solid #333; font-weight:800;
-        font-size:20px;
-      }}
-      .tag-win   {{ color:#2b8a3e; }}
-      .tag-joker {{ color:#1c7ed6; }}
-      .tag-bad   {{ color:#e03131; }}
-
-      .list {{ margin-top:12px; }}
-      .list li {{ margin:.15rem 0; }}
-    </style>
-
-    <script>
-      const DATA = {DATA};
-
-      const stage = document.getElementById('stage');
-      const btnStart = document.getElementById('btnStart');
-      const resultBox = document.getElementById('resultBox');
-
-      // 초기 카드(뒷면)
-      DATA.players.forEach(p => {{
-        const w = document.createElement('div');
-        w.className = 'cardwrap';
-        w.innerHTML = `
-          <div class="flipbox">
-            <div class="face back">POKER</div>
-@app.route("/games/oddcard", methods=["GET","POST"])
-def oddcard_game():
-    members = get_members()
-
-    # GET: 설정 폼
-    if request.method == "GET":
-        opts = "".join([f"<option value='{m}'>{m}</option>" for m in members])
-
-    body = f"""\
-    <div class="card shadow-sm"><div class="card-body">
-      <h5 class="card-title">외톨이 카드</h5>
-      <p class="text-muted">홀수 인원만 참여 가능. 같은 동물 2장씩 + 외톨이 1장. 모두 공개 후 조커 효과 적용.</p>
-
-      <form method="post">
-        <div class="mb-2">
-          <label class="form-label">플레이어</label>
-          <select class="form-select" name="players" multiple size="6">{opts}</select>
-        </div>
-
-        <div class="mb-2">
-          <label class="form-label">게스트 (쉼표로 구분)</label>
-          <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
-        </div>
-
-        <button class="btn btn-primary w-100" type="submit">시작</button>
-      </form>
-    </div></div>
-    """
-
-    return body      
-
-    # POST: 게임 진행
-    players, _ = parse_players()
-    if len(players) < 3 or len(players) % 2 == 0:
-        flash("홀수 인원 3명 이상이어야 합니다.", "warning")
-        return redirect(url_for("oddcard_game"))
-
-    n = len(players)
-    # 동물 이모지(페어용) 충분히 길게
-    ANIMALS = ["🦊","🐼","🐯","🐸","🐶","🐱","🐷","🐵","🦁","🐮","🐨","🦄","🐰","🐔","🦉","🦓","🦒","🐙","🦕","🦖"]
-    random.shuffle(ANIMALS)
-    pair_count = (n - 1) // 2
-
-    # 덱 구성: 동물 페어 + 외톨이(뱀 🐍)
-    deck = [ANIMALS[i] for i in range(pair_count) for _ in (0,1)] + ["🐍"]  # 🐍 = 외톨이
-    random.shuffle(deck)
-
-    # 배정
-    assignment = dict(zip(players, deck))
-
-    # 기본 호구(외톨이)
-    base_loser = next(p for p, face in assignment.items() if face == "🐍")
-
-    # 조커: 항상 1명, 3종 효과 중 하나
-    joker_person = random.choice(players)
-    joker_effect = random.choice(["win", "become_loser", "swap_with_winner"])
-
-    # 최종 호구 계산(조커 적용 전후 모두 기록)
-    final_loser = base_loser
-    joker_note = ""
-
-    if joker_effect == "win":
-        joker_note = f"조커({joker_person}) 효과: 승리 🎉 (결과 변동 없음)"
-        # final_loser unchanged
-    elif joker_effect == "become_loser":
-        joker_note = f"조커({joker_person}) 효과: 호구와 체인지 → 조커가 호구"
-        final_loser = joker_person
-    else:  # swap_with_winner
-        winners = [p for p, face in assignment.items() if face != "🐍" and p != joker_person]
-        if winners:
-            picked = random.choice(winners)
-            joker_note = f"조커({joker_person}) 효과: 임의 승리자({picked})와 호구({final_loser}) 교체"
-            final_loser = picked
-        else:
-            # 예외적으로 교체할 승리자가 없으면 변화 없음
-            joker_note = f"조커({joker_person}) 효과: 교체 대상 없음 → 결과 유지"
-
-    # 기록(최종 호구 1회 카운트)
-    upsert_hogu_loss(final_loser, 1)
-    db_execute(
-        "INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?);",
-        (
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "oddcard",
-            "페어+외톨이, 조커(승리/호구체인지/임의교체)",
-            json.dumps(players, ensure_ascii=False),
-            final_loser,
-            json.dumps(
-                {
-                    "assignment": assignment,
-                    "joker_person": joker_person,
-                    "joker_effect": joker_effect,
-                    "base_loser": base_loser,
-                    "final_loser": final_loser,
-                },
-                ensure_ascii=False,
-            ),
-        ),
-    )
-    get_db().commit()
-
-    # 결과 페이지(카드 뒤집기 애니메이션 → 전부 공개 후 조커 발표)
-    DATA = json.dumps(
-        {
-            "players": players,
-            "assignment": assignment,     # {name: "🦊"/"🐍"...}
-            "joker_person": joker_person,
-            "joker_effect": joker_effect,
-            "base_loser": base_loser,
-            "final_loser": final_loser,
-        },
-        ensure_ascii=False,
-    )
-
-    home_url  = url_for('games_home')
-    retry_url = url_for('oddcard_game')
-
-    body = f"""
+  {% if mode == 'form' %}
     <div class="card shadow-sm">
       <div class="card-body">
         <h5 class="card-title">외톨이 카드</h5>
-        <div class="mb-2 text-muted">모두 공개된 뒤 조커가 발표됩니다.</div>
+        <p class="text-muted mb-3">
+          홀수 인원만 참여 가능. 같은 동물 2장씩 + 외톨이 1장. 모두 공개 후 조커 효과 적용.
+        </p>
 
-        <div id="grid" class="mb-3"></div>
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label">플레이어</label>
+            <select class="form-select" name="players" multiple size="6">
+              {% for m in members %}
+                <option value="{{m}}">{{m}}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">여러 명 선택하려면 Ctrl/Command 를 누른 채 선택하세요.</div>
+          </div>
 
-        <div id="jokerBox" class="alert alert-info d-none"></div>
-        <div id="resultBox" class="alert alert-success d-none"></div>
+          <div class="mb-3">
+            <label class="form-label">게스트 (쉼표로 구분)</label>
+            <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
+          </div>
 
-        <div class="d-flex gap-2">
-          <button id="revealBtn" class="btn btn-primary">카드 공개</button>
-          <a class="btn btn-outline-secondary" href="{home_url}">게임 홈</a>
-          <a class="btn btn-outline-dark" href="{retry_url}">다시 하기</a>
-        </div>
+          <button class="btn btn-primary w-100" type="submit">시작</button>
+        </form>
       </div>
     </div>
+  {% else %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="m-0">외톨이 카드 – 공개</h5>
+      <button id="revealBtn" class="btn btn-primary">모두 공개</button>
+    </div>
 
-    <style>
-      #grid {{ display:grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); gap:14px; }}
-      .card-wrap {{ display:flex; flex-direction:column; align-items:center; gap:8px; }}
-      .card-name {{ font-weight:600; }}
-      .playing-card {{
-        width: 96px; height: 136px; border-radius:10px; position: relative; perspective: 800px;
-      }}
-      .inner {{
-        position:absolute; inset:0; transition: transform .6s ease; transform-style: preserve-3d;
-      }}
-      .playing-card.flip .inner {{ transform: rotateY(180deg); }}
+    <div class="grid" id="grid"></div>
 
-      .face, .back {{
-        position:absolute; inset:0; border-radius:10px; border:1px solid #ddd; backface-visibility:hidden;
-        display:flex; align-items:center; justify-content:center;
-      }}
-      /* 카드 뒷면: 포커 무늬 */
-      .back {{
-        background:
-          radial-gradient(#b00 1px, transparent 1px) 0 0/8px 8px,
-          radial-gradient(#b00 1px, transparent 1px) 4px 4px/8px 8px,
-          #fff;
-      }}
-      .face {{
-        transform: rotateY(180deg);
-        background:#fff;
-        font-size:48px;
-      }}
-      .badge-joker {{ display:inline-block; padding:.15rem .45rem; border-radius:.4rem; background:#0d6efd; color:#fff; font-size:.8rem; }}
-      .badge-loser {{ display:inline-block; padding:.15rem .45rem; border-radius:.4rem; background:#dc3545; color:#fff; font-size:.8rem; }}
-      .badge-win   {{ display:inline-block; padding:.15rem .45rem; border-radius:.4rem; background:#198754; color:#fff; font-size:.8rem; }}
-    </style>
+    <div class="alert alert-warning mt-3 d-none" id="jokerBox"></div>
+    <div class="alert alert-info mt-2 d-none" id="resultBox"></div>
 
     <script>
-      const DATA = {DATA};
+      // 서버에서 전달된 게임 데이터
+      const DATA = {{ data|tojson }};
 
       const grid = document.getElementById('grid');
       const btn  = document.getElementById('revealBtn');
@@ -2323,82 +1762,178 @@ def oddcard_game():
       const resultBox = document.getElementById('resultBox');
 
       // 초기(뒷면) 렌더
-      DATA.players.forEach((p) => {{
+      DATA.players.forEach(function(p) {
         const wrap = document.createElement('div');
         wrap.className = 'card-wrap';
 
         const name = document.createElement('div');
         name.className = 'card-name';
-        name.textContent = p + (p === DATA.joker_person ? ' ' : '');
+        name.textContent = p;
+        wrap.appendChild(name);
 
         const pc = document.createElement('div');
         pc.className = 'playing-card';
-        pc.innerHTML = `
-          <div class="inner">
-            <div class="face">${{DATA.assignment[p]}}</div>
-            <div class="back"></div>
-          </div>
-        `;
+        const inner = document.createElement('div');
+        inner.className = 'inner';
+        const face = document.createElement('div');
+        face.className = 'face';
+        face.textContent = DATA.assignment[p];
+        const back = document.createElement('div');
+        back.className = 'back';
+        inner.appendChild(face);
+        inner.appendChild(back);
+        pc.appendChild(inner);
         wrap.appendChild(pc);
 
-        // 라벨(조커는 작은 배지로 표시 — 공개 전엔 숨김)
         const label = document.createElement('div');
         label.className = 'small text-muted';
         label.innerHTML = (p === DATA.joker_person) ? '<span class="badge-joker">조커</span>' : '&nbsp;';
-        label.style.visibility = 'hidden';   // 공개 후 보여줌
+        label.style.visibility = 'hidden';
         wrap.appendChild(label);
 
         grid.appendChild(wrap);
-      }});
+      });
 
-      function sleep(ms) {{ return new Promise(r=>setTimeout(r, ms)); }}
+      function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
 
-      // 순차 flip + 결과 표시
-      btn.addEventListener('click', async () => {{
+      btn.addEventListener('click', async function() {
         btn.disabled = true;
-
-        const cards = Array.from(document.querySelectorAll('.playing-card'));
-        for (let i=0;i<cards.length;i++) {{
+        const cards = Array.prototype.slice.call(document.querySelectorAll('.playing-card'));
+        for (let i=0;i<cards.length;i++){
           cards[i].classList.add('flip');
-          await sleep(420); // 천천히
-        }}
+          await sleep(420);
+        }
 
-        // 조커/최종 결과 공개
-        // 조커 배지 보이기
-        Array.from(document.querySelectorAll('.card-wrap')).forEach((wrap, idx) => {{
+        // 라벨 보이기 + 승/패 배지
+        const wraps = Array.prototype.slice.call(document.querySelectorAll('.card-wrap'));
+        wraps.forEach(function(wrap, idx){
           const name = DATA.players[idx];
           const badge = wrap.querySelector('.small');
           badge.style.visibility = 'visible';
-          if (name === DATA.final_loser) {{
+          if (name === DATA.final_loser) {
             const tag = document.createElement('div');
             tag.className = 'badge-loser';
             tag.textContent = '호구';
             wrap.appendChild(tag);
-          }} else if (name !== DATA.joker_person) {{
+          } else if (name !== DATA.joker_person) {
             const tag = document.createElement('div');
             tag.className = 'badge-win';
             tag.textContent = '승리';
             wrap.appendChild(tag);
-          }}
-        }});
+          }
+        });
 
-        // 조커 설명
         let effectLabel = '';
         if (DATA.joker_effect === 'win') effectLabel = '승리 🎉';
         else if (DATA.joker_effect === 'become_loser') effectLabel = '호구와 체인지 → 조커가 호구';
         else effectLabel = '임의 승리자와 호구 교체';
 
         jokerBox.classList.remove('d-none');
-        jokerBox.innerHTML = `조커: <b>${{DATA.joker_person}}</b> · 효과: <b>${{effectLabel}}</b>`;
+        jokerBox.innerHTML = '조커: <b>' + DATA.joker_person + '</b> · 효과: <b>' + effectLabel + '</b>';
 
         resultBox.classList.remove('d-none');
-        resultBox.innerHTML = `기본 호구: ${{DATA.base_loser}} → <b>최종 호구: ${{DATA.final_loser}}</b>`;
-      }});
+        resultBox.innerHTML = '기본 호구: ' + DATA.base_loser + ' → <b>최종 호구: ' + DATA.final_loser + '</b>';
+      });
     </script>
-    """
+  {% endif %}
 
-    return render(body)
+</div>
+</body>
+</html>
+"""
 
+def _parse_guest_line(text):
+    if not text: 
+        return []
+    # 한글/영문/숫자/공백/하이픈만 남기고 쉼표로 split
+    # "홍 길 동 ,  김-게스트" -> ["홍 길 동","김-게스트"]
+    raw = [t.strip() for t in re.split(r"[,\n]+", text) if t.strip()]
+    return raw
+
+def _deal_cards(names):
+    # 동물 카드 셔플(2장씩) + 외톨이 1장
+    animals = ["사자","호랑이","코끼리","코뿔소","원숭이","늑대","여우","팬더","토끼","수달","고래","돌고래","하마","치타","사슴","곰","양","염소","표범","기린"]
+    random.shuffle(animals)
+    pairs_needed = (len(names)-1)//2
+    deck = []
+    for i in range(pairs_needed):
+        deck += [animals[i], animals[i]]
+    deck.append("외톨이")
+    random.shuffle(deck)
+
+    assignment = {}
+    for n, card in zip(names, deck):
+        assignment[n] = card
+    return assignment
+
+def _pick_joker_effect():
+    # 승리 / 호구랑 체인지(조커가 호구) / 임의 승리자와 호구 교체
+    return random.choice(["win","become_loser","swap_random"])
+
+def _apply_joker_rule(players, assignment, base_loser, joker_person, effect):
+    final_loser = base_loser
+    if effect == "win":
+        # 조커는 자동 승리. 기본 호구 유지.
+        return final_loser
+    elif effect == "become_loser":
+        # 조커가 호구가 된다.
+        return joker_person
+    else:
+        # 임의 승리자 1명과 호구 교체
+        winners = [p for p in players if p != base_loser and p != joker_person]
+        if winners:
+            swap_with = random.choice(winners)
+            return swap_with
+        return base_loser
+
+@app.route("/loner", methods=["GET","POST"])
+def loner_game():
+    # 전역 members 없을 수도 있어서 안전 처리
+    all_members = globals().get("members", [])
+    if request.method == "GET":
+        return render_template_string(LONER_TEMPLATE, mode="form", members=all_members)
+
+    # POST: 선택된 인원 + 게스트 파싱
+    selected = request.form.getlist("players")
+    guests_line = request.form.get("guests","")
+    guests = _parse_guest_line(guests_line)
+
+    players = [p for p in (selected + guests) if p]
+    # 홀수 강제: 짝수면 마지막 게스트를 제거(안전장치)
+    if len(players) % 2 == 0 and len(players) > 0:
+        players = players[:-1]
+
+    # 최소 3명 이상 권장
+    if len(players) < 3:
+        return render_template_string(LONER_TEMPLATE, mode="form", members=all_members)
+
+    # 카드 배분
+    assignment = _deal_cards(players)
+
+    # 기본 호구(외톨이 받은 사람)
+    base_loser = next((p for p,c in assignment.items() if c == "외톨이"), None)
+
+    # 조커 1명 랜덤
+    joker_person = random.choice(players)
+
+    # 조커 효과 3가지 중 하나
+    joker_effect = _pick_joker_effect()
+
+    # 최종 호구 계산
+    final_loser = _apply_joker_rule(players, assignment, base_loser, joker_person, joker_effect)
+
+    data = {
+        "players": players,
+        "assignment": assignment,
+        "base_loser": base_loser,
+        "joker_person": joker_person,
+        "joker_effect": joker_effect,
+        "final_loser": final_loser,
+    }
+
+    return render_template_string(LONER_TEMPLATE, mode="play", data=data, members=all_members)
+# ===== 외톨이게임 끝 =====
+        
 # ------------------ 앱 실행 ------------------
 if __name__ == "__main__":
     with app.app_context():
