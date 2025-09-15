@@ -1790,7 +1790,7 @@ def ladder_game():
 
     // SVG
     const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
-    svg.setAttribute("viewBox", `0 0 ${WIDTH} ${HEIGHT}`);
+    svg.setAttribute("viewBox", "0 0 " + WIDTH + " " + HEIGHT);
     svg.setAttribute("width", "100%");
     svg.setAttribute("height", "440");
     document.getElementById("ladder-container").appendChild(svg);
