@@ -277,6 +277,18 @@ header.topbar .nav.nav-pills.nav-convex .nav-link:focus {
 </body>
 </html>
 """
+/* ===== Meals table upgrades ===== */
+.table-scroll { overflow-x: auto; }
+.table-minwide { min-width: 900px; } /* 필요시 숫자 조절 */
+.table-sticky thead th {
+  position: sticky; top: 0;
+  background: #fff; z-index: 2;  /* 헤더가 내용 위에 오도록 */
+}
+.table-nowrap th, .table-nowrap td { white-space: nowrap; }
+.meals-actions .btn { margin-right: .25rem; } /* 버튼 간 살짝 간격 */
+@media (max-width: 576px) {
+  .table-minwide { min-width: 720px; }
+}
 
 def render(body_html, **ctx):
     return render_template_string(BASE, body=body_html, **ctx)
@@ -1162,8 +1174,12 @@ def meals():
           m.id,
           m.dt,
           m.payer_name,
+          m.entry_mode,
+          m.main_mode,
+          m.side_mode,
           COALESCE(SUM(p.total_amount), 0) AS team_total,
-          COALESCE(COUNT(p.id), 0) AS diners,
+          COALESCE(COUNT(p.id), 0)         AS diners,
+          COALESCE(string_agg(p.name, ', ' ORDER BY p.name), '') AS diner_names,
           m.guest_total
         FROM meals m
         LEFT JOIN meal_parts p ON p.meal_id = m.id
@@ -1172,22 +1188,34 @@ def meals():
         LIMIT 200;
     """).fetchall()
 
-    items = "".join([
-        f"<tr>"
-        f"<td>#{r['id']}</td>"
-        f"<td>{r['dt']}</td>"
-        f"<td>{html_escape(r['payer_name'] or '(없음)')}</td>"
-        f"<td class='num'>{r['diners']}</td>"
-        f"<td class='num'>{r['team_total']:,}</td>"
-        f"<td class='num'>{r['guest_total']:,}</td>"
-        f"<td class='text-end'>"
-        f"<a class='btn btn-sm btn-outline-secondary' href='{ url_for('meal_detail', meal_id=r['id']) }'>보기</a> "
-        f"<a class='btn btn-sm btn-outline-primary' href='{ url_for('meal_edit', meal_id=r['id']) }'>수정</a> "
-        f"<a class='btn btn-sm btn-outline-danger' href='{ url_for('meal_delete', meal_id=r['id']) }' onclick='return confirm(\"삭제할까요? 자동정산 입금도 함께 제거됩니다.\");'>삭제</a>"
-        f"</td>"
-        f"</tr>"
-        for r in rows
-    ])
+    # 표 행 렌더
+    items = ""
+    for r in rows:
+        calc_label = (
+            "총액" if r["entry_mode"] == "total"
+            else f"상세(메인:{r['main_mode']}, 사이드:{r['side_mode']})"
+        )
+        actions = (
+            f"<div class='meals-actions d-inline-flex'>"
+            f"<a class='btn btn-sm btn-outline-secondary' href='{ url_for('meal_detail', meal_id=r['id']) }'>보기</a>"
+            f"<a class='btn btn-sm btn-outline-primary'   href='{ url_for('meal_edit',   meal_id=r['id']) }'>수정</a>"
+            f"<a class='btn btn-sm btn-outline-danger'    href='{ url_for('meal_delete', meal_id=r['id']) }' "
+            f"onclick='return confirm(\"삭제할까요? 자동정산 입금도 함께 제거됩니다.\");'>삭제</a>"
+            f"</div>"
+        )
+        items += (
+            "<tr>"
+            f"<td>#{r['id']}</td>"
+            f"<td>{r['dt']}</td>"
+            f"<td>{html_escape(r['payer_name'] or '(없음)')}</td>"
+            f"<td class='num'>{r['diners']}</td>"
+            f"<td class='text-truncate' style='max-width:280px'>{html_escape(r['diner_names'])}</td>"
+            f"<td>{calc_label}</td>"
+            f"<td class='num'>{r['team_total']:,}</td>"
+            f"<td class='num'>{r['guest_total']:,}</td>"
+            f"<td class='text-end'>{actions}</td>"
+            "</tr>"
+        )
 
     body = f"""
     <div class="card shadow-sm">
@@ -1195,24 +1223,27 @@ def meals():
         <div class="d-flex justify-content-between align-items-center mb-2">
           <h5 class="card-title mb-0">식사 기록</h5>
           <div class="d-flex gap-2">
-            <a class="btn btn-success btn-sm" href="{ url_for('meal') }">식사 등록</a>
+            <a class="btn btn-success btn-sm"  href="{ url_for('meal') }">식사 등록</a>
             <a class="btn btn-outline-secondary btn-sm" href="{ url_for('home') }">메인으로</a>
           </div>
         </div>
-        <div class="table-responsive">
-          <table class="table table-sm align-middle">
+
+        <div class="table-scroll">
+          <table class="table table-sm align-middle table-minwide table-sticky table-nowrap">
             <thead>
               <tr>
                 <th>ID</th>
                 <th>날짜</th>
                 <th>결제자</th>
                 <th class="text-end">인원</th>
+                <th>식사 명단</th>
+                <th>계산 방식</th>
                 <th class="text-end">팀원합계</th>
                 <th class="text-end">게스트합계</th>
                 <th class="text-end">관리</th>
               </tr>
             </thead>
-            <tbody>{items}</tbody>
+            <tbody>{items or "<tr><td colspan='9' class='text-center text-muted'>기록 없음</td></tr>"}</tbody>
           </table>
         </div>
       </div>
