@@ -1376,6 +1376,59 @@ def dice_game():
             ones = [rolls[0] for rolls in rolls_per_player]
             if 1 in ones:
                 # 1 나온 사람 면책
+# ------------------ 주사위 게임 ------------------
+DICE_RULES = [
+    lambda r: ("단 한 번! 가장 큰 수가 호구", lambda rolls: rolls.index(max(rolls))),
+    lambda r: ("2회 굴려 합이 가장 큰 사람이 호구(동점이면 마지막 눈 큰 사람)", None),
+    lambda r: ("주사위 2개 합에서 10을 뺀 절댓값이 가장 큰 사람이 호구", None),
+    lambda r: ("세 사람이면 가운데 값(중앙값) 낸 사람이 호구, 그 외엔 최대값", None),
+    lambda r: ("최솟값이 호구! 단, 1이 나온 사람은 면책되고 다음 최솟값이 호구", None),
+]
+
+@app.route("/games/dice", methods=["GET","POST"])
+def dice_game():
+    members = get_members()
+    if request.method == "POST":
+        players, _ = parse_players()
+        if len(players) < 2:
+            flash("2명 이상 선택하세요.", "warning"); return redirect(url_for("dice_game"))
+        max_dice = int(request.form.get("max_dice") or 1)
+        max_dice = 1 if max_dice < 1 else 3 if max_dice > 3 else max_dice
+
+        # 룰 선택 + 굴림
+        rule_fn = random.choice(DICE_RULES)
+        rule_text, _ = rule_fn(None)
+
+        rolls_per_player = []
+        for _p in players:
+            rolls = [random.randint(1,6) for _ in range(max_dice)]
+            rolls_per_player.append(rolls)
+
+        # 판정
+        loser_index = None
+        if "2회 굴려 합" in rule_text:
+            sums = [sum([random.randint(1,6) for _ in range(2)]) for _ in players]
+            max_sum = max(sums)
+            cand = [i for i,s in enumerate(sums) if s==max_sum]
+            if len(cand) == 1:
+                loser_index = cand[0]
+            else:
+                last_eye = [random.randint(1,6) for _ in cand]
+                loser_index = cand[last_eye.index(max(last_eye))]
+            rule_text += f" (합:{sums})"
+        elif "10을 뺀 절댓값" in rule_text:
+            sums = [sum(rolls) for rolls in rolls_per_player]
+            scores = [abs(s-10) for s in sums]
+            loser_index = scores.index(max(scores))
+            rule_text += f" (합:{sums}, 점수:{scores})"
+        elif "중앙값" in rule_text and len(players)==3:
+            ones = [rolls[0] for rolls in rolls_per_player]
+            scores = [abs(o-4) for o in ones]
+            loser_index = scores.index(min(scores))
+            rule_text += f" (첫눈:{ones})"
+        elif "최솟값이 호구" in rule_text:
+            ones = [rolls[0] for rolls in rolls_per_player]
+            if 1 in ones:
                 tmp = [(999 if x==1 else x) for x in ones]
                 loser_index = tmp.index(min(tmp))
                 rule_text += f" (1면책, 눈:{ones})"
@@ -1383,20 +1436,117 @@ def dice_game():
                 loser_index = ones.index(min(ones))
                 rule_text += f" (눈:{ones})"
         else:
-            # 기본: 최대 합/최대 눈
             totals = [sum(rolls) for rolls in rolls_per_player]
             loser_index = totals.index(max(totals))
             rule_text += f" (합:{totals})"
 
         loser = players[loser_index]
         upsert_hogu_loss(loser, 1)
-        db_execute("INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?);",
-                   (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "dice", rule_text, json.dumps(players,ensure_ascii=False), loser, json.dumps({"rolls":rolls_per_player},ensure_ascii=False)))
+        db_execute(
+            "INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?);",
+            (
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "dice",
+                rule_text,
+                json.dumps(players, ensure_ascii=False),
+                loser,
+                json.dumps({"rolls": rolls_per_player}, ensure_ascii=False),
+            ),
+        )
         get_db().commit()
 
-        flash(f"룰: {rule_text}<br>참가자: {', '.join(players)}<br><b>호구: {loser}</b>", "success")
-        return redirect(url_for("games_home"))
+        # 연출/결과 화면 (JS로 1.5초 굴리는 애니메이션 후 결과 고정)
+        payload = {
+            "players": players,
+            "rolls": rolls_per_player,
+            "rule": rule_text,
+            "loser": loser,
+            "max_dice": max_dice,
+        }
+        DATA = json.dumps(payload, ensure_ascii=False)
+        body = f"""
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <h5 class="card-title">🎲 주사위 굴리는 중...</h5>
+            <div class="mb-2 text-muted" id="rule">룰: {html_escape(rule_text)}</div>
 
+            <div id="stage" class="mb-3"></div>
+
+            <div id="resultBox" class="alert alert-success d-none"></div>
+
+            <div class="d-flex gap-2">
+              <a class="btn btn-outline-secondary" href="{{{{ url_for('games_home') }}}}">게임 홈</a>
+              <a class="btn btn-primary" href="{{{{ url_for('dice_game') }}}}">다시 하기</a>
+            </div>
+          </div>
+        </div>
+
+        <style>
+          .player-row {{ display:flex; align-items:center; gap:12px; margin-bottom:10px; }}
+          .name-badge {{ min-width:88px; padding:.35rem .6rem; border-radius:.5rem; background:#f1f3f5; }}
+          .dice-wrap {{ display:flex; gap:8px; flex-wrap:wrap; }}
+          .die {{
+            width:40px; height:40px; border-radius:10px; border:1px solid #ddd;
+            display:inline-flex; align-items:center; justify-content:center;
+            font-weight:700; font-size:18px; background:#fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,.06);
+          }}
+          .spin {{ animation: blink .25s linear infinite; }}
+          @keyframes blink {{ 50% {{ opacity:.6; }} }}
+          .loser {{ background:#fff4f4; border-color:#f1b0b7; }}
+        </style>
+
+        <script>
+          const DATA = {DATA};
+          const stage = document.getElementById('stage');
+          const resultBox = document.getElementById('resultBox');
+
+          // 초기 UI 구성 (모두 스핀 상태 숫자 랜덤)
+          DATA.players.forEach((p, i) => {{
+            const row = document.createElement('div');
+            row.className = 'player-row';
+            row.innerHTML = `
+              <span class="name-badge">${{p}}</span>
+              <div class="dice-wrap">
+                ${'{'}Array.from({{length: DATA.max_dice}}).map(()=>'<span class="die spin">?</span>').join(''){'}'}
+              </div>
+            `;
+            stage.appendChild(row);
+          }});
+
+          // 굴리는 효과: 1.5초 동안 숫자 랜덤 교체
+          const diceEls = Array.from(stage.querySelectorAll('.die'));
+          const t = setInterval(() => {{
+            diceEls.forEach(el => el.textContent = (1 + Math.floor(Math.random()*6)));
+          }}, 80);
+
+          function reveal() {{
+            clearInterval(t);
+            // 실제 눈 공개
+            const rows = Array.from(stage.querySelectorAll('.player-row'));
+            rows.forEach((row, i) => {{
+              const eyes = DATA.rolls[i];
+              const spans = row.querySelectorAll('.die');
+              spans.forEach((el, j) => {{
+                el.classList.remove('spin');
+                el.textContent = (eyes[j] !== undefined ? eyes[j] : '-');
+              }});
+              if (DATA.players[i] === DATA.loser) {{
+                row.classList.add('loser');
+              }}
+            }});
+
+            resultBox.classList.remove('d-none');
+            resultBox.innerHTML = `참가자: ${{DATA.players.join(', ')}}<br><b>호구: ${{DATA.loser}}</b>`;
+            document.querySelector('.card-title').textContent = '🎉 결과';
+          }}
+
+          setTimeout(reveal, 1500);
+        </script>
+        """
+        return render(body)
+
+    # GET: 게임 설정 폼
     opts = "".join([f"<option value='{m}'>{m}</option>" for m in members])
     body = f"""
     <div class="card shadow-sm"><div class="card-body">
@@ -1405,7 +1555,7 @@ def dice_game():
         <div class="mb-2">
           <label class="form-label">플레이어(팀원 다중선택 가능)</label>
           <select class="form-select" name="players" multiple size="6">{opts}</select>
-          <div class="form-text">Ctrl/Command 키로 다중 선택</div>
+          <div class="form-text">모바일은 길게 눌러 다중선택 하세요. 게스트는 아래에 입력.</div>
         </div>
         <div class="mb-2">
           <label class="form-label">게스트 (쉼표로 구분)</label>
