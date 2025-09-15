@@ -187,6 +187,10 @@ BASE = """
   <link href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.3/dist/cosmo/bootstrap.min.css" rel="stylesheet">
   <style>
     :root { --brand-green: #00854A; }
+    body {
+  background: url("{{ url_for('static', filename='static/bg-hex.jpg') }}") repeat;
+  background-size: 250px auto;  /* 패턴 크기 조절 (200~300px 정도가 무난) */
+}
     body { padding-bottom: 40px; }
     .num { text-align: right; }
     .table-sm td, .table-sm th { padding:.45rem; }
