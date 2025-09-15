@@ -312,7 +312,7 @@ def home():
         counts_map = get_meal_counts_map()
         member_items = "".join([
             f"<li class='d-flex justify-content-between'><span>{n}</span>"
-            f"<span class='text-muted'>잔액 {balances_map.get(n,0):,}원 · 식사 {counts_map.get(n,0)}회</span></li>"
+            f"<span class='text-white-50'>잔액 {balances_map.get(n,0):,}원 · 식사 {counts_map.get(n,0)}회</span></li>"
             for n in members
         ])
         body = f"""
