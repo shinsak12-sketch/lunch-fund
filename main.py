@@ -1649,7 +1649,7 @@ def dice_game():
     """
     return render(body)
 
-@app.route("/games/ladder", methods=["GET", "POST"])
+@app.route("/games/ladder", methods=["GET","POST"])
 def ladder_game():
     members = get_members()
 
@@ -1690,12 +1690,12 @@ def ladder_game():
     TOP, BOTTOM = 60, 500
     LEFT = 80
     WIDTH = LEFT + (n - 1) * LANE_GAP + 80
-    HEIGHT = BOTTOM + 60
+    HEIGHT = BOTTOM + 70
     STEP = 60
     y_levels = list(range(TOP + STEP, BOTTOM - STEP + 1, STEP))
 
-    # 가로줄 생성(같은 y에서 인접 2개 금지)
-    rungs = []  # (i, y) -> i와 i+1 연결
+    # 가로줄 생성: 같은 y에서 이웃 중복 금지
+    rungs = []
     for y in y_levels:
         used = set()
         for i in _rand.sample(range(n - 1), k=(n - 1)):
@@ -1703,12 +1703,13 @@ def ladder_game():
                 continue
             if _rand.random() < 0.45:
                 rungs.append((i, y)); used.add(i)
+        # y에 아무 것도 없을 때 소량 보정
         if not any(yy == y for _, yy in rungs) and (n >= 3) and _rand.random() < 0.25:
             i = _rand.randrange(0, n - 1)
             if i not in used and (i - 1) not in used and (i + 1) not in used:
                 rungs.append((i, y))
 
-    # 경로계산용 정렬
+    # 경로 계산용 자료구조
     y_sorted = sorted({y for _, y in rungs})
     rungs_by_y = {y: set(i for i, yy in rungs if yy == y) for y in y_sorted}
 
@@ -1720,11 +1721,11 @@ def ladder_game():
         return c
 
     end_cols = [traverse(c) for c in range(n)]
+    # 혹시라도 중복이 생기면(안전장치)
     if len(set(end_cols)) != n:
-        order = list(range(n)); _rand.shuffle(order); end_cols = order  # 안전장치
+        order = list(range(n)); _rand.shuffle(order); end_cols = order
 
-    # ----- 바닥 결과 슬롯 깔기 -----
-    # 호구 1, 조커 1, 승리 K(최대 3). 나머지는 "일반"으로 채움.
+    # ----- 바닥 슬롯: 호구 1 + 조커 1 + 승리 K(최대 3), 나머지 일반 -----
     win_count = max(0, min(3, n - 2))
     outcomes = ["일반"] * n
     slots = list(range(n)); _rand.shuffle(slots)
@@ -1732,20 +1733,17 @@ def ladder_game():
     outcomes[slots.pop()] = "조커"
     for _ in range(win_count):
         outcomes[slots.pop()] = "승리"
-    # (남은 슬롯은 "일반")
 
     xs = [LEFT + i * LANE_GAP for i in range(n)]
 
     DATA = {
         "players": players,
         "xs": xs,
-        "TOP": TOP,
-        "BOTTOM": BOTTOM,
-        "WIDTH": WIDTH,
-        "HEIGHT": HEIGHT,
-        "rungs": rungs,         # [i,y]
-        "end_cols": end_cols,   # 각 플레이어의 도착열
-        "outcomes": outcomes    # 각 열의 결과(바닥 슬롯)
+        "TOP": TOP, "BOTTOM": BOTTOM,
+        "WIDTH": WIDTH, "HEIGHT": HEIGHT,
+        "rungs": rungs,         # [i, y]
+        "end_cols": end_cols,   # 각 플레이어 도착 열
+        "outcomes": outcomes    # 각 열의 결과
     }
     DATA_JSON = json.dumps(DATA, ensure_ascii=False)
 
@@ -1754,7 +1752,7 @@ def ladder_game():
       .ladder-wrap {{ overflow-x:auto; }}
       svg.ladder {{ width:100%; height:auto; background:#fff; }}
       .v {{ stroke:#777; stroke-width:2; }}
-      .h {{ stroke:#555; stroke-width:2; }}
+      .h {{ stroke:#cc3d3d; stroke-width:2; }}
       .path {{ stroke:#e03131; stroke-width:3; fill:none; }}
       .runner {{ fill:#e03131; }}
       .lbl {{ font-size:13px; fill:#333; }}
@@ -1777,8 +1775,9 @@ def ladder_game():
       <a class="btn btn-outline-dark btn-sm" href="{ url_for('ladder_game') }">다시 하기</a>
     </div>
 
+    <div class="alert alert-info" id="jokerBox" style="display:none;"></div>
     <div class="alert alert-success result-box" id="finalBox" style="display:none;"></div>
-    <ul class="mt-2" id="mapList">{''.join(f"<li id='mrow{i}'></li>" for i in range(n))}</ul>
+    <ul class="mt-2">{''.join(f"<li id='mrow{i}'></li>" for i in range(n))}</ul>
 
     <script>
       const DATA = {DATA_JSON};
@@ -1804,7 +1803,7 @@ def ladder_game():
         el.setAttribute("r",r); if(cls) el.setAttribute("class",cls); return el;
       }}
 
-      // 정적 세로/가로/라벨
+      // 세로줄/가로줄/이름
       for(let i=0;i<DATA.xs.length;i++) {{
         svg.appendChild(line(DATA.xs[i], DATA.TOP, DATA.xs[i], DATA.BOTTOM, "v"));
         svg.appendChild(text(DATA.xs[i], DATA.TOP-20, DATA.players[i], "lbl"));
@@ -1813,18 +1812,18 @@ def ladder_game():
         svg.appendChild(line(DATA.xs[i], y, DATA.xs[i+1], y, "h"));
       }}
 
-      // 바닥 슬롯 표시
+      // 바닥 슬롯
       for(let c=0;c<DATA.outcomes.length;c++) {{
         const kind = DATA.outcomes[c];
         let cls = "slot";
         if (kind === "승리") cls += " win";
         else if (kind === "조커") cls += " joker";
         else if (kind === "호구") cls += " bad";
-        svg.appendChild(text(DATA.xs[c], DATA.BOTTOM+20, kind, cls));
+        svg.appendChild(text(DATA.xs[c], DATA.BOTTOM+22, kind, cls));
         svg.appendChild(circle(DATA.xs[c], DATA.BOTTOM, 5, "")); // 바닥 점
       }}
 
-      // 가로줄 맵
+      // 가로줄 테이블
       const rMap = new Map();
       for (const [i,y] of DATA.rungs) {{
         if (!rMap.has(y)) rMap.set(y,new Set());
@@ -1843,17 +1842,17 @@ def ladder_game():
         return pts;
       }}
 
-      // 빠른 속도(원하면 숫자 더 키워도 됨)
-      const SPEED = 360; // px/sec
+      // 속도 ↑
+      const SPEED = 520; // px/sec
 
       function animatePath(pts){{
         const dot = circle(pts[0][0], pts[0][1], 5, "runner");
         svg.appendChild(dot);
-        const path = document.createElementNS("http://www.w3.org/2000/svg","polyline");
-        path.setAttribute("fill","none"); path.setAttribute("stroke","#e03131");
-        path.setAttribute("stroke-width","2"); path.setAttribute("opacity","0.15");
-        path.setAttribute("points", pts.map(p=>p[0]+","+p[1]).join(" "));
-        svg.appendChild(path);
+        const ghost = document.createElementNS("http://www.w3.org/2000/svg","polyline");
+        ghost.setAttribute("fill","none"); ghost.setAttribute("stroke","#e03131");
+        ghost.setAttribute("stroke-width","2"); ghost.setAttribute("opacity","0.15");
+        ghost.setAttribute("points", pts.map(p=>p[0]+","+p[1]).join(" "));
+        svg.appendChild(ghost);
 
         let seg=0, t0=null;
         function step(ts){{
@@ -1867,55 +1866,28 @@ def ladder_game():
         }}
         return new Promise(res=>{{
           function watch(){{
-            if(seg>=pts.length-1){{ dot.remove(); path.setAttribute("opacity","0.55"); res(); return; }}
+            if(seg>=pts.length-1){{ dot.remove(); ghost.setAttribute("opacity","0.55"); res(); return; }}
             requestAnimationFrame(step); setTimeout(watch,16);
           }} watch();
         }});
       }}
 
+      // 진행/집계
       const btn = document.getElementById('btnPlay');
+      const jokerBox = document.getElementById('jokerBox');
       const finalBox = document.getElementById('finalBox');
 
-      let currentLoser = null;   // 최종 호구 이름
-      const finished = new Set();
+      let baseLoser = null;         // 바닥 "호구"에 도착한 사람(없을 수 있음)
+      let jokerHolder = null;       // 바닥 "조커"에 도착한 사람(항상 0 또는 1명)
+      const winners = new Set();    // 바닥 "승리"에 도착한 사람들
 
       function setRow(i, html) {{
         document.getElementById("mrow"+i).innerHTML = html;
       }}
 
-      function applyJokerEffect(playerName) {{
-        // 3종 랜덤: 승리 / 호구와 체인지 / 호구를 다른 사람으로 변경
-        const r = Math.random();
-        if (r < 1/3) {{
-          return `조커 효과: <b>승리!</b>`;
-        }} else if (r < 2/3) {{
-          // 호구와 체인지
-          if (currentLoser && currentLoser !== playerName) {{
-            const prev = currentLoser;
-            currentLoser = playerName;
-            return `조커 효과: <b>호구와 체인지!</b> (이전 호구: ${'{'}prev{'}'})`;
-          }} else {{
-            // 아직 호구가 없었거나 자기 자신이면 => 자신이 호구가 됨
-            currentLoser = playerName;
-            return `조커 효과: <b>호구로 변경!</b>`;
-          }}
-        }} else {{
-          // 호구를 다른 사람으로 변경(자신 제외, 가능한 대상이 있어야 함)
-          const candidates = DATA.players.filter(p => p !== playerName);
-          if (candidates.length) {{
-            const victim = candidates[Math.floor(Math.random()*candidates.length)];
-            currentLoser = victim;
-            return `조커 효과: <b>호구를 '${'{'}victim{'}'}'로 변경!</b>`;
-          }} else {{
-            // 후보가 없으면 자기만 호구
-            currentLoser = playerName;
-            return `조커 효과: <b>호구로 변경!</b>`;
-          }}
-        }}
-      }}
-
       async function runAll(){{
         btn.disabled = true;
+        // 1) 개별 이동 + 기본 결과 표시(조커 효과는 아직 적용 X)
         for (let i=0;i<DATA.players.length;i++) {{
           const name = DATA.players[i];
           const pts = buildPath(i);
@@ -1924,38 +1896,69 @@ def ladder_game():
           const destCol = DATA.end_cols[i];
           const slot = DATA.outcomes[destCol];
 
-          let line = `${'{'}name{'}'} → <b>${'{'}slot{'}'}</b>`;
-          if (slot === "호구") {{
-            currentLoser = name;
-          }} else if (slot === "조커") {{
-            const msg = applyJokerEffect(name);
-            line += ` &nbsp; <span class="text-primary">(${ '{'}msg{'}' })</span>`;
-          }} else if (slot === "승리") {{
-            line += " 🎉";
-          }}
-          setRow(i, line);
-          finished.add(name);
+          if (slot === "호구") baseLoser = name;
+          else if (slot === "승리") winners.add(name);
+          else if (slot === "조커") jokerHolder = name;
+
+          setRow(i, `${'{'}name{'}'} → <b>${'{'}slot{'}'}</b>${'{'}slot==="승리"?" 🎉":""{'}'}`);
         }}
 
-        // 최종 결과 표시
+        // 2) 조커 공개 & 효과 적용(모든 결과 나온 뒤)
+        let finalLoser = baseLoser;
+        let effectText = "(조커 없음)";
+
+        if (jokerHolder) {{
+          // 효과 3종: 승리 / 호구와 체인지(조커가 호구) / 호구 임의 변경(조커 제외 승리자 1명과 호구 스왑)
+          const r = Math.random();
+          if (r < 1/3) {{
+            effectText = "조커 효과: 승리 🎉 (변화 없음)";
+            // finalLoser 유지
+          }} else if (r < 2/3) {{
+            effectText = "조커 효과: 호구와 체인지 → 조커가 호구가 됨";
+            finalLoser = jokerHolder || finalLoser || DATA.players[0];
+          }} else {{
+            // 승리자 중(조커 제외) 한 명과 호구 스왑
+            const cand = Array.from(winners).filter(p => p !== jokerHolder);
+            if (cand.length > 0) {{
+              const pick = cand[Math.floor(Math.random()*cand.length)];
+              if (finalLoser) {{
+                effectText = `조커 효과: 호구 임의 변경 → 승리자 '${'{'}pick{'}'}'가 호구로`;
+                finalLoser = pick;
+              }} else {{
+                effectText = `조커 효과: 호구 임의 변경 → 호구가 없어서 승리자 '${'{'}pick{'}'}'가 호구로`;
+                finalLoser = pick;
+              }}
+            }} else {{
+              // 승리자가 없을 때의 안전 처리: 조커가 호구로
+              effectText = "조커 효과: 승리자가 없어 조커가 호구로";
+              finalLoser = jokerHolder;
+            }}
+          }}
+
+          jokerBox.style.display = "block";
+          jokerBox.innerHTML = `조커: <b>${'{'}jokerHolder{'}'}</b><br>${'{'}effectText{'}'}`;
+        }}
+
+        // 3) 최종 결과
         finalBox.style.display = "block";
-        if (!currentLoser) {{
-          finalBox.innerHTML = "호구 없음(조커 효과 등으로 취소됨)";
+        if (!finalLoser) {{
+          finalBox.innerHTML = "호구 없음 (모든 효과 적용 결과)";
         }} else {{
-          finalBox.innerHTML = "호구: <span class='loser'>" + currentLoser + "</span>";
+          finalBox.innerHTML = "호구: <span class='loser'>" + finalLoser + "</span>";
         }}
       }}
 
       document.getElementById('btnPlay').addEventListener('click', runAll);
     </script>
     """
-    # DB 기록(보드는 저장하되, 실제 최종 호구는 클라이언트에서 확정되므로 일단 'pending')
+
+    # 서버에는 보드/슬롯 구성까지만 기록(최종 호구는 클라이언트 조커효과까지 반영 후 확정)
     db_execute(
         "INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?);",
         (
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "ladder",
-            "바닥: 호구·조커·승리(N) / 조커=무작위 효과",
+            "바닥: 호구·조커·승리 / 조커는 전원 공개 뒤 단일 효과(승리|체인지|임의변경) 적용",
             json.dumps(players, ensure_ascii=False),
             None,
             json.dumps({"rungs": rungs, "end_cols": end_cols, "outcomes": outcomes}, ensure_ascii=False),
