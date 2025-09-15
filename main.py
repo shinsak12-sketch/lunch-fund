@@ -793,10 +793,11 @@ def _meal_form_html(members, initial=None, edit_target_id=None):
             </div>
           </div>
 
-          <div class="mt-2 d-flex gap-2">
-            <button class="btn btn-success">저장</button>
-            <a class="btn btn-outline-secondary" href="{ url_for('home') }">뒤로</a>
-          </div>
+             <div class="mt-2 d-flex gap-2 flex-wrap">
+               <button class="btn btn-success">저장</button>
+               <a class="btn btn-outline-primary" href="{ url_for('meals') }">식사 기록</a>
+               <a class="btn btn-outline-secondary" href="{ url_for('home') }">뒤로</a>
+             </div>
         </form>
       </div>
     </div>
