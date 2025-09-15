@@ -1111,6 +1111,73 @@ def meal_delete(meal_id):
     flash("삭제되었습니다.", "info")
     return redirect(url_for("meal"))
 
+# ------------------ 식사 기록 리스트 ------------------
+@app.get("/meals")
+def meals():
+    # 최근 식사 200건: 팀원합계/게스트합계/참여자수 집계
+    rows = db_execute("""
+        SELECT
+          m.id,
+          m.dt,
+          m.payer_name,
+          COALESCE(SUM(p.total_amount), 0) AS team_total,
+          COALESCE(COUNT(p.id), 0) AS diners,
+          m.guest_total
+        FROM meals m
+        LEFT JOIN meal_parts p ON p.meal_id = m.id
+        GROUP BY m.id
+        ORDER BY m.id DESC
+        LIMIT 200;
+    """).fetchall()
+
+    items = "".join([
+        f"<tr>"
+        f"<td>#{r['id']}</td>"
+        f"<td>{r['dt']}</td>"
+        f"<td>{html_escape(r['payer_name'] or '(없음)')}</td>"
+        f"<td class='num'>{r['diners']}</td>"
+        f"<td class='num'>{r['team_total']:,}</td>"
+        f"<td class='num'>{r['guest_total']:,}</td>"
+        f"<td class='text-end'>"
+        f"<a class='btn btn-sm btn-outline-secondary' href='{ url_for('meal_detail', meal_id=r['id']) }'>보기</a> "
+        f"<a class='btn btn-sm btn-outline-primary' href='{ url_for('meal_edit', meal_id=r['id']) }'>수정</a> "
+        f"<a class='btn btn-sm btn-outline-danger' href='{ url_for('meal_delete', meal_id=r['id']) }' onclick='return confirm(\"삭제할까요? 자동정산 입금도 함께 제거됩니다.\");'>삭제</a>"
+        f"</td>"
+        f"</tr>"
+        for r in rows
+    ])
+
+    body = f"""
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="card-title mb-0">식사 기록</h5>
+          <div class="d-flex gap-2">
+            <a class="btn btn-success btn-sm" href="{ url_for('meal') }">식사 등록</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{ url_for('home') }">메인으로</a>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>날짜</th>
+                <th>결제자</th>
+                <th class="text-end">인원</th>
+                <th class="text-end">팀원합계</th>
+                <th class="text-end">게스트합계</th>
+                <th class="text-end">관리</th>
+              </tr>
+            </thead>
+            <tbody>{items}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    """
+    return render(body)
+
 # ------------------ 현황/정산 ------------------
 @app.route("/status")
 def status():
