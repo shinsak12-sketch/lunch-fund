@@ -1676,9 +1676,9 @@ def ladder_game():
         """
         return render(body)
 
-# ===== 외톨이게임: Flask 라우트 (복붙용, 안전버전) =====
-from flask import request, render_template_string
+# ===== 외톨이게임: Flask 라우트 (수정 버전, 전체) =====
 import random, re
+from flask import request, render_template_string
 
 LONER_TEMPLATE = """
 <!doctype html>
@@ -1703,7 +1703,7 @@ LONER_TEMPLATE = """
       background: repeating-linear-gradient(45deg, #0d6efd 0 10px, #0a58ca 10px 20px);
       color:#fff;
     }
-    .playing-card .face { transform: rotateY(180deg); }
+    .playing-card .face { transform: rotateY(180deg); font-weight:700; letter-spacing:.5px; }
     .badge-joker { background:#ffc107; color:#000; padding:2px 6px; border-radius:6px; font-size:12px; }
     .badge-win   { background:#198754; color:#fff; padding:2px 6px; border-radius:6px; font-size:12px; position:absolute; right:-6px; top:-6px; }
     .badge-loser { background:#dc3545; color:#fff; padding:2px 6px; border-radius:6px; font-size:12px; position:absolute; right:-6px; top:-6px; }
@@ -1752,8 +1752,12 @@ LONER_TEMPLATE = """
     <div class="alert alert-warning mt-3 d-none" id="jokerBox"></div>
     <div class="alert alert-info mt-2 d-none" id="resultBox"></div>
 
+    <div class="d-flex gap-2 mt-3">
+      <a class="btn btn-outline-secondary" href="{{ url_for('oddcard_game') }}">다시 하기</a>
+      <a class="btn btn-outline-dark" href="{{ url_for('games_home') }}">게임 홈</a>
+    </div>
+
     <script>
-      // 서버에서 전달된 게임 데이터
       const DATA = {{ data|tojson }};
 
       const grid = document.getElementById('grid');
@@ -1845,14 +1849,12 @@ LONER_TEMPLATE = """
 def _parse_guest_line(text):
     if not text: 
         return []
-    # 한글/영문/숫자/공백/하이픈만 남기고 쉼표로 split
-    # "홍 길 동 ,  김-게스트" -> ["홍 길 동","김-게스트"]
     raw = [t.strip() for t in re.split(r"[,\n]+", text) if t.strip()]
     return raw
 
 def _deal_cards(names):
-    # 동물 카드 셔플(2장씩) + 외톨이 1장
-    animals = ["사자","호랑이","코끼리","코뿔소","원숭이","늑대","여우","팬더","토끼","수달","고래","돌고래","하마","치타","사슴","곰","양","염소","표범","기린"]
+    animals = ["사자","호랑이","코끼리","코뿔소","원숭이","늑대","여우","팬더","토끼","수달",
+               "고래","돌고래","하마","치타","사슴","곰","양","염소","표범","기린"]
     random.shuffle(animals)
     pairs_needed = (len(names)-1)//2
     deck = []
@@ -1867,61 +1869,44 @@ def _deal_cards(names):
     return assignment
 
 def _pick_joker_effect():
-    # 승리 / 호구랑 체인지(조커가 호구) / 임의 승리자와 호구 교체
     return random.choice(["win","become_loser","swap_random"])
 
 def _apply_joker_rule(players, assignment, base_loser, joker_person, effect):
     final_loser = base_loser
     if effect == "win":
-        # 조커는 자동 승리. 기본 호구 유지.
         return final_loser
     elif effect == "become_loser":
-        # 조커가 호구가 된다.
         return joker_person
     else:
-        # 임의 승리자 1명과 호구 교체
         winners = [p for p in players if p != base_loser and p != joker_person]
         if winners:
             swap_with = random.choice(winners)
             return swap_with
         return base_loser
 
-@app.route("/loner", methods=["GET","POST"])
-def loner_game():
-    # oddcard_game 이라는 엔드포인트도 loner_game 과 연결
-    app.add_url_rule("/oddcard", endpoint="oddcard_game", view_func=loner_game, methods=["GET","POST"])
-    # 전역 members 없을 수도 있어서 안전 처리
-    all_members = globals().get("members", [])
-    if request.method == "GET":
-        return render_template_string(LONER_TEMPLATE, mode="form", members=all_members)
+@app.route("/oddcard", methods=["GET","POST"])
+@app.route("/games/oddcard", methods=["GET","POST"])
+def oddcard_game():
+    members = get_members()
 
-    # POST: 선택된 인원 + 게스트 파싱
+    if request.method == "GET":
+        return render_template_string(LONER_TEMPLATE, mode="form", members=members)
+
     selected = request.form.getlist("players")
     guests_line = request.form.get("guests","")
     guests = _parse_guest_line(guests_line)
-
     players = [p for p in (selected + guests) if p]
-    # 홀수 강제: 짝수면 마지막 게스트를 제거(안전장치)
+
     if len(players) % 2 == 0 and len(players) > 0:
         players = players[:-1]
 
-    # 최소 3명 이상 권장
     if len(players) < 3:
-        return render_template_string(LONER_TEMPLATE, mode="form", members=all_members)
+        return render_template_string(LONER_TEMPLATE, mode="form", members=members)
 
-    # 카드 배분
     assignment = _deal_cards(players)
-
-    # 기본 호구(외톨이 받은 사람)
     base_loser = next((p for p,c in assignment.items() if c == "외톨이"), None)
-
-    # 조커 1명 랜덤
     joker_person = random.choice(players)
-
-    # 조커 효과 3가지 중 하나
     joker_effect = _pick_joker_effect()
-
-    # 최종 호구 계산
     final_loser = _apply_joker_rule(players, assignment, base_loser, joker_person, joker_effect)
 
     data = {
@@ -1933,7 +1918,7 @@ def loner_game():
         "final_loser": final_loser,
     }
 
-    return render_template_string(LONER_TEMPLATE, mode="play", data=data, members=all_members)
+    return render_template_string(LONER_TEMPLATE, mode="play", data=data, members=members)
 # ===== 외톨이게임 끝 =====
         
 # ------------------ 앱 실행 ------------------
