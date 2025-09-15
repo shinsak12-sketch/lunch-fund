@@ -80,6 +80,13 @@ def init_db():
 
     get_db().commit()
 
+# Flask 3.x 호환: 모듈 임포트 시 테이블 보장
+with app.app_context():
+    try:
+        init_db()
+    except Exception as e:
+        app.logger.warning(f"DB init skipped or already exists: {e}")
+
 # ------------------ 유틸 ------------------
 def get_members():
     cur = db_execute("SELECT name FROM members ORDER BY name;")
@@ -128,10 +135,6 @@ def require_login():
     if request.path not in ("/login", "/favicon.ico", "/ping"):
         if not session.get("authed"):
             return redirect(url_for("login"))
-
-@app.before_first_request
-def _ensure_db():
-    init_db()
 
 # ------------------ 템플릿 ------------------
 # 상단바 컬러: #00854A (R0 G133 B74), 텍스트 흰색
