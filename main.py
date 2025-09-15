@@ -1967,82 +1967,263 @@ def ladder_game():
     get_db().commit()
     return render(body)
 
-# ------------------ 외톨이 카드(페어+1, 조커 5:5) ------------------
+# ------------------ 외톨이 카드(페어+1) + 조커 연출 ------------------
 @app.route("/games/oddcard", methods=["GET","POST"])
 def oddcard_game():
     members = get_members()
-    if request.method == "POST":
-        players, _ = parse_players()
-        if len(players) < 3 or (len(players) % 2 == 0):
-            flash("홀수 인원 3명 이상이어야 합니다.", "warning"); return redirect(url_for("oddcard_game"))
 
-        n = len(players)
-        # 카드 구성: 페어*[(n-1)/2] + 외톨이 1
-        pairs = (n - 1) // 2
-        cards = [f"페어{i+1}" for i in range(pairs) for _ in (0,1)] + ["외톨이"]
-        random.shuffle(cards)
-        assignment = dict(zip(players, cards))
+    # GET: 게임 설정 폼
+    if request.method == "GET":
+        opts = "".join([f"<option value='{m}'>{m}</option>" for m in members])
+        body = f"""
+        <div class="card shadow-sm"><div class="card-body">
+          <h5 class="card-title">외톨이 카드</h5>
+          <p class="text-muted">
+            홀수 인원만 참여 가능. 2-2 페어 + 1 외톨이(=기본 호구).<br>
+            조커는 게임 종료 후 공개되며 3가지 중 하나가 적용됩니다: 
+            <b>①승리 유지</b> · <b>②호구랑 체인지(조커가 호구)</b> · <b>③호구 임의 변경(승리자 1명과 호구 자리 바꿈)</b>.
+          </p>
+          <form method="post">
+            <div class="mb-2">
+              <label class="form-label">플레이어</label>
+              <select class="form-select" name="players" multiple size="7">{opts}</select>
+              <div class="form-text">모바일은 길게 눌러 다중선택. 게스트는 아래에 쉼표로 입력.</div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label">게스트 (쉼표로 구분)</label>
+              <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
+            </div>
+            <button class="btn btn-primary">게임 시작</button>
+            <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
+          </form>
+        </div></div>
+        """
+        return render(body)
 
-        # 조커 1명 부여(확률 1/n): 조커 효과 50% 좋음(무효/다시), 50% 나쁨(빵 추가)
-        joker_person = None
-        joker_effect = None
-        if random.random() < (1.0 / n):
-            joker_person = random.choice(players)
-            joker_effect = random.choice(["good","bad"])
+    # POST: 게임 생성
+    players, _ = parse_players()
+    if len(players) < 3 or (len(players) % 2 == 0):
+        flash("홀수 인원 3명 이상이어야 합니다.", "warning")
+        return redirect(url_for("oddcard_game"))
 
-        loser = None
-        info = {"assignment": assignment, "joker_person": joker_person, "joker_effect": joker_effect}
+    n = len(players)
 
-        if joker_person and joker_effect == "good":
-            # 무효 & 재뽑기
-            info["note"] = "조커(좋음): 무효 처리, 재뽑기"
-            # 재뽑기 간단히 외톨이를 다시 랜덤 선정
-            lonely = random.choice(players)
-            loser = lonely
+    # 카드 구성: 페어 * ((n-1)//2) + 외톨이 1
+    pairs = (n - 1) // 2
+    deck = [f"페어{i+1}" for i in range(pairs) for _ in (0,1)] + ["외톨이"]
+    random.shuffle(deck)
+
+    assignment = dict(zip(players, deck))
+
+    # 기본 호구(외톨이 카드 가진 사람)
+    base_loser = next(p for p, c in assignment.items() if c == "외톨이")
+
+    # 조커는 1/n 확률로 등장 (없을 수도 있음)
+    joker_person = None
+    joker_mode = None   # "keep_win" | "swap_with_hogu" | "swap_hogu_with_random_winner"
+    if random.random() < (1.0 / n):
+        joker_person = random.choice(players)
+        joker_mode = random.choice(["keep_win", "swap_with_hogu", "swap_hogu_with_random_winner"])
+
+    # 최종 호구 계산(조커 규칙 적용)
+    final_loser = base_loser
+    note_lines = []
+
+    if joker_person:
+        if joker_mode == "keep_win":
+            note_lines.append(f"조커({joker_person}) 효과: 승리 유지 🎉")
+            # 변화 없음
+        elif joker_mode == "swap_with_hogu":
+            # 조커가 호구가 됨
+            note_lines.append(f"조커({joker_person}) 효과: 호구랑 체인지 → 조커가 최종 호구 😈")
+            final_loser = joker_person
         else:
-            # 기본: '외톨이'를 뽑은 사람이 호구
-            for p, card in assignment.items():
-                if card == "외톨이":
-                    loser = p
-                    break
-            if joker_person and joker_effect == "bad":
-                info["note"] = "조커(나쁨): 빵까지!"
-                # 벌칙을 조금 강화하는 의미로 losses 2회 카운트
-                upsert_hogu_loss(loser, 2)
-            else:
-                upsert_hogu_loss(loser, 1)
+            # 호구 임의 변경: 조커를 제외한 승리자 중 1명 선택하여 호구와 자리 바꿈
+            winners = [p for p, c in assignment.items() if c != "외톨이" and p != joker_person]
+            if winners:
+                picked = random.choice(winners)
+                note_lines.append(f"조커({joker_person}) 효과: 호구 임의 변경 → (승리자 {picked} ↔ 호구 {base_loser})")
+                if final_loser == base_loser:
+                    final_loser = picked
 
-        db_execute("INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?);",
-                   (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "oddcard",
-                    "페어+외톨이, 조커 5:5 (좋음:무효/재뽑기, 나쁨:추가벌칙)",
-                    json.dumps(players,ensure_ascii=False), loser, json.dumps(info,ensure_ascii=False)))
-        get_db().commit()
+    # DB 기록 + 카운트
+    upsert_hogu_loss(final_loser, 1)
+    extra = {
+        "assignment": assignment,
+        "base_loser": base_loser,
+        "joker_person": joker_person,
+        "joker_mode": joker_mode,
+        "notes": note_lines,
+    }
+    db_execute("INSERT INTO games(dt, game_type, rule, participants, winner, loser, extra) VALUES (?,?,?,?,?,?,?);",
+               (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "oddcard",
+                "페어+외톨이, 조커(승리 유지/호구랑 체인지/호구 임의 변경)",
+                json.dumps(players, ensure_ascii=False),
+                None,  # 이 게임은 '최종 호구'만 의미있게 사용
+                final_loser,
+                json.dumps(extra, ensure_ascii=False)))
+    get_db().commit()
 
-        msg = f"배정: {', '.join([f'{k}:{v}' for k,v in assignment.items()])}"
-        if joker_person:
-            msg += f"<br>조커: {joker_person} ({'좋음' if joker_effect=='good' else '나쁨'})"
-        msg += f"<br><b>호구: {loser}</b>"
-        flash(msg, "success")
-        return redirect(url_for("games_home"))
+    # 프론트 애니메이션용 데이터
+    DATA = json.dumps({
+        "players": players,
+        "assignment": assignment,       # 각 사람의 카드(페어/외톨이)
+        "base_loser": base_loser,
+        "joker_person": joker_person,
+        "joker_mode": joker_mode,
+        "note_lines": note_lines,
+        "final_loser": final_loser
+    }, ensure_ascii=False)
 
-    opts = "".join([f"<option value='{m}'>{m}</option>" for m in members])
+    # 템플릿(카드 뒷면 → 순차 뒤집기 → 조커 메시지 → 최종 호구 알림)
     body = f"""
-    <div class="card shadow-sm"><div class="card-body">
-      <h5 class="card-title">외톨이 카드</h5>
-      <p class="text-muted">홀수 인원만 참여 가능. 2-2 페어 + 1 외톨이(호구). 가끔 조커가 등장(좋음/나쁨 5:5).</p>
-      <form method="post">
-        <div class="mb-2">
-          <label class="form-label">플레이어</label>
-          <select class="form-select" name="players" multiple size="6">{opts}</select>
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">🃏 외톨이 카드</h5>
+        <div id="stage" class="mb-3"></div>
+        <div class="d-flex gap-2 mb-3">
+          <button id="btnStart" class="btn btn-outline-primary">애니메이션 시작</button>
+          <a class="btn btn-outline-secondary" href="{{{{ url_for('games_home') }}}}">게임 홈</a>
+          <a class="btn btn-primary" href="{{{{ url_for('oddcard_game') }}}}">다시 하기</a>
         </div>
-        <div class="mb-2">
-          <label class="form-label">게스트 (쉼표로 구분)</label>
-          <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
-        </div>
-        <button class="btn btn-primary">게임 시작</button>
-        <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
-      </form>
-    </div></div>
+
+        <div id="resultBox" class="alert alert-success d-none"></div>
+      </div>
+    </div>
+
+    <style>
+      #stage {{ display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }}
+      .cardwrap {{
+        width:120px; height:170px; position:relative; perspective:800px;
+      }}
+      .name {{ text-align:center; font-weight:600; margin-top:.35rem; }}
+      .flipbox {{
+        width:100%; height:100%; position:relative; transform-style:preserve-3d;
+        transition: transform .45s ease;
+      }}
+      .flipbox.flipped {{ transform: rotateY(180deg); }}
+
+      .face {{
+        position:absolute; inset:0; border-radius:10px; backface-visibility:hidden;
+        box-shadow:0 2px 8px rgba(0,0,0,.12);
+      }}
+      .back {{
+        background:#b80f0f;
+        background-image:
+          radial-gradient(#ffffff66 1.2px, transparent 1.2px),
+          radial-gradient(#ffffff66 1.2px, transparent 1.2px);
+        background-size:10px 10px,10px 10px;
+        background-position:0 0,5px 5px;
+        display:flex; align-items:center; justify-content:center; color:#fff;
+        font-weight:800; font-size:18px;
+      }}
+      .front {{
+        background:#fff; transform:rotateY(180deg); display:flex;
+        align-items:center; justify-content:center; border:2px solid #333; font-weight:800;
+        font-size:20px;
+      }}
+      .tag-win   {{ color:#2b8a3e; }}
+      .tag-joker {{ color:#1c7ed6; }}
+      .tag-bad   {{ color:#e03131; }}
+
+      .list {{ margin-top:12px; }}
+      .list li {{ margin:.15rem 0; }}
+    </style>
+
+    <script>
+      const DATA = {DATA};
+
+      const stage = document.getElementById('stage');
+      const btnStart = document.getElementById('btnStart');
+      const resultBox = document.getElementById('resultBox');
+
+      // 초기 카드(뒷면)
+      DATA.players.forEach(p => {{
+        const w = document.createElement('div');
+        w.className = 'cardwrap';
+        w.innerHTML = `
+          <div class="flipbox">
+            <div class="face back">POKER</div>
+            <div class="face front"></div>
+          </div>
+          <div class="name">${{p}}</div>
+        `;
+        stage.appendChild(w);
+      }});
+
+      function flipOne(i) {{
+        return new Promise(res => {{
+          const wrap = stage.children[i];
+          const box = wrap.querySelector('.flipbox');
+          const front = wrap.querySelector('.front');
+          const target = DATA.assignment[DATA.players[i]];
+
+          // 카드 앞면 내용
+          let txt = target;
+          front.textContent = txt;
+
+          box.classList.add('flipped');
+          setTimeout(res, 520);
+        }});
+      }}
+
+      async function run() {{
+        btnStart.disabled = true;
+
+        // 1) 전원 공개(순차 뒤집기)
+        for (let i=0; i<DATA.players.length; i++) {{
+          await flipOne(i);
+          await new Promise(r => setTimeout(r, 200));  // 속도: 약간 빠르게
+        }}
+
+        // 2) 기본 호구(외톨이) 표시
+        const baseIdx = DATA.players.indexOf(DATA.base_loser);
+        const baseFront = stage.children[baseIdx].querySelector('.front');
+        baseFront.classList.add('tag-bad');
+
+        // 3) 조커가 있으면, 조커 카드 테두리/메시지 표시
+        let notes = [];
+        if (DATA.joker_person) {{
+          const jIdx = DATA.players.indexOf(DATA.joker_person);
+          const jFront = stage.children[jIdx].querySelector('.front');
+          jFront.classList.add('tag-joker');
+
+          if (DATA.joker_mode === 'keep_win') {{
+            notes.push(`조커(${DATA.joker_person}) 효과: 승리 유지 🎉`);
+          }} else if (DATA.joker_mode === 'swap_with_hogu') {{
+            notes.push(`조커(${DATA.joker_person}) 효과: 호구랑 체인지 → 조커가 최종 호구`);
+          }} else {{
+            notes.push(`조커(${DATA.joker_person}) 효과: 호구 임의 변경`);
+          }}
+        }}
+
+        // 4) 최종 호구 강조
+        const finalIdx = DATA.players.indexOf(DATA.final_loser);
+        const finalFront = stage.children[finalIdx].querySelector('.front');
+        finalFront.style.borderColor = '#e03131';
+        finalFront.style.boxShadow = '0 0 0 3px rgba(224,49,49,.35)';
+
+        // 5) 결과 출력
+        resultBox.classList.remove('d-none');
+        const li = DATA.players.map(p => {{
+          const tag = DATA.assignment[p] === '외톨이' ? '외톨이' : '페어';
+          return `<li>${{p}} → ${{tag}}</li>`;
+        }}).join('');
+        const extra = (DATA.note_lines || []).map(x => `<div>${{x}}</div>`).join('');
+        resultBox.innerHTML = `
+          <div><b>최종 호구: ${{
+            DATA.final_loser
+          }}</b></div>
+          <div class="list">
+            <ul>${{li}}</ul>
+          </div>
+          ${'{'}extra{'}'}
+        `;
+      }}
+
+      btnStart.addEventListener('click', run);
+    </script>
     """
     return render(body)
 
