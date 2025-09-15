@@ -1362,21 +1362,21 @@ def dice_game():
                 loser_index = cand[last_eye.index(max(last_eye))]
             rule_text += f" (합:{sums})"
         elif "중앙값" in rule_text and len(players) == 3:
-    # 중앙값: 각자 1개씩만 보고 중앙값이 가장 '가까운 4'에 해당하는 사람으로 변형
-    ones = [rolls[0] for rolls in rolls_per_player]
-    scores = [abs(o - 4) for o in ones]
-    loser_index = scores.index(min(scores))
-    rule_text += f" (첫눈:{ones})"
-elif "최솟값이 호구" in rule_text:
-    ones = [rolls[0] for rolls in rolls_per_player]
-    if 1 in ones:
-        # 1 나온 사람 면책
-        tmp = [(999 if x == 1 else x) for x in ones]
-        loser_index = tmp.index(min(tmp))
-        rule_text += f" (1면책, 눈:{ones})"
-    else:
-        loser_index = ones.index(min(ones))
-        rule_text += f" (눈:{ones})"
+                # 중앙값: 각자 1개씩만 보고 중앙값이 가장 '가까운 4'에 해당하는 사람으로 변형
+                ones = [rolls[0] for rolls in rolls_per_player]
+                scores = [abs(o - 4) for o in ones]
+                loser_index = scores.index(min(scores))
+                rule_text += f" (첫눈:{ones})"
+        elif "최솟값이 호구" in rule_text:
+                ones = [rolls[0] for rolls in rolls_per_player]
+                if 1 in ones:
+                    # 1 나온 사람 면책
+                    tmp = [(999 if x == 1 else x) for x in ones]
+                    loser_index = tmp.index(min(tmp))
+                    rule_text += f" (1면책, 눈:{ones})"
+                else:
+                    loser_index = ones.index(min(ones))
+                    rule_text += f" (눈:{ones})"
 # ------------------ 주사위 게임 ------------------
 DICE_RULES = [
     lambda r: ("단 한 번! 가장 큰 수가 호구", lambda rolls: rolls.index(max(rolls))),
