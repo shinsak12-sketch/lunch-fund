@@ -2190,11 +2190,11 @@ def oddcard_game():
           jFront.classList.add('tag-joker');
 
           if (DATA.joker_mode === 'keep_win') {{
-            notes.push(`조커(${DATA.joker_person}) 효과: 승리 유지 🎉`);
+            notes.push(`조커(${{DATA.joker_person}}) 효과: 승리 유지 🎉`);
           }} else if (DATA.joker_mode === 'swap_with_hogu') {{
-            notes.push(`조커(${DATA.joker_person}) 효과: 호구랑 체인지 → 조커가 최종 호구`);
+            notes.push(`조커(${{DATA.joker_person}}) 효과: 호구랑 체인지 → 조커가 최종 호구`);
           }} else {{
-            notes.push(`조커(${DATA.joker_person}) 효과: 호구 임의 변경`);
+            notes.push(`조커(${{DATA.joker_person}}) 효과: 호구 임의 변경`);
           }}
         }}
 
