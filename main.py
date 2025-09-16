@@ -1732,13 +1732,13 @@ def dice_game():
 def ladder_game():
     members = get_members()
 
-    # ---------- GET: 설정 폼 ----------
+    # ---------- 1) GET: 설정 폼 ----------
     if request.method == "GET":
         opts = "".join([f"<option value='{m}'>{m}</option>" for m in members])
         body = f"""
         <div class="card shadow-sm"><div class="card-body">
           <h5 class="card-title">사다리 게임</h5>
-          <p class="text-muted">플레이어를 선택하고 시작하세요. (임시 규칙: 무작위로 1명 호구)</p>
+          <p class="text-muted">플레이어를 선택하고 시작하세요.</p>
           <form method="post">
             <div class="mb-2">
               <label class="form-label">플레이어</label>
@@ -1749,26 +1749,138 @@ def ladder_game():
               <label class="form-label">게스트 (쉼표로 구분)</label>
               <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
             </div>
-            <div class="d-flex gap-2">
-              <button class="btn btn-primary">게임 시작</button>
-              <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
-            </div>
+            <button class="btn btn-primary">게임 시작</button>
+            <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
           </form>
         </div></div>
         """
         return render(body)
 
-    # ---------- POST: 참가자 검증 & 결과 계산 ----------
+    # ---------- 2) POST: 참가자 검증 ----------
     players, _ = parse_players()
     if len(players) < 2:
         flash("2명 이상 선택하세요.", "warning")
         return redirect(url_for("ladder_game"))
 
-    # [간단 규칙] 시각화 없이 무작위로 한 명을 패자로 선정
-    loser = random.choice(players)
-    rule_text = "사다리(무작위 패자, 시각화 생략)"
+    # 데이터 준비 (프론트에서 애니메이션용으로 사용)
+    DATA = json.dumps({"players": players}, ensure_ascii=False)
 
-    # 통계/기록 저장
+    # ---------- 3) 진행 화면 (애니메이션 포함) ----------
+    body = f"""
+    <div class="card shadow-sm"><div class="card-body">
+      <h5 class="card-title">🎉 사다리 게임 - 진행</h5>
+      <p class="text-muted">랜덤 사다리 생성 후 아래 버튼으로 결과 확인</p>
+
+      <div id="ladderBox" style="overflow-x:auto;">
+        <canvas id="ladderCanvas" height="400"></canvas>
+      </div>
+
+      <div class="d-flex gap-2 mt-3">
+        <button id="runBtn" class="btn btn-success">결과 확인</button>
+        <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">게임 홈</a>
+      </div>
+
+      <div class="alert alert-info mt-3 d-none" id="resultBox"></div>
+
+      <form id="saveForm" method="post" action="{ url_for('ladder_game_result') }" class="d-none">
+        <input type="hidden" name="final_payload" id="final_payload">
+      </form>
+
+      <script>
+        const DATA = {DATA};
+        const canvas = document.getElementById('ladderCanvas');
+        const ctx = canvas.getContext('2d');
+        const colWidth = 100;
+        const rowHeight = 20;
+        const cols = DATA.players.length;
+        const rows = 18;
+
+        canvas.width = colWidth * cols;
+        canvas.height = rowHeight * rows;
+
+        // 사다리 라인 저장
+        let ladder = [];
+        for (let r=1; r<rows; r++) {{
+          let row = [];
+          for (let c=0; c<cols-1; c++) {{
+            if (Math.random() < 0.3) row.push(c);
+          }}
+          ladder.push(row);
+        }}
+
+        // 그리기
+        function drawLadder() {{
+          ctx.clearRect(0,0,canvas.width,canvas.height);
+          ctx.strokeStyle="#000";
+          ctx.lineWidth=2;
+
+          // 세로줄
+          for (let c=0; c<cols; c++) {{
+            ctx.beginPath();
+            ctx.moveTo(colWidth*c + colWidth/2, 0);
+            ctx.lineTo(colWidth*c + colWidth/2, rowHeight*rows);
+            ctx.stroke();
+          }}
+
+          // 가로줄
+          ladder.forEach((row,ri) => {{
+            row.forEach(c => {{
+              ctx.beginPath();
+              ctx.moveTo(colWidth*c + colWidth/2, rowHeight*ri);
+              ctx.lineTo(colWidth*(c+1) + colWidth/2, rowHeight*ri);
+              ctx.stroke();
+            }});
+          }});
+        }}
+        drawLadder();
+
+        function runGame() {{
+          let pos = [];
+          for (let c=0;c<cols;c++) pos.push(c);
+
+          ladder.forEach(row => {{
+            row.forEach(c => {{
+              let tmp = pos[c];
+              pos[c] = pos[c+1];
+              pos[c+1] = tmp;
+            }});
+          }});
+
+          let loserIndex = Math.floor(Math.random()*cols);
+          let loser = DATA.players[pos[loserIndex]];
+
+          document.getElementById('resultBox').classList.remove('d-none');
+          document.getElementById('resultBox').innerHTML =
+            '참가자: ' + DATA.players.join(', ') + '<br><b>호구: ' + loser + '</b>';
+
+          // 서버 저장용
+          const payload = {{
+            players: DATA.players,
+            loser: loser
+          }};
+          document.getElementById('final_payload').value = JSON.stringify(payload);
+          document.getElementById('saveForm').submit();
+        }}
+
+        document.getElementById('runBtn').addEventListener('click', runGame);
+      </script>
+    </div></div>
+    """
+    return render(body)
+
+# ---------- 4) 최종 결과 저장 ----------
+@app.post("/games/ladder/result")
+def ladder_game_result():
+    payload_raw = request.form.get("final_payload")
+    try:
+        payload = json.loads(payload_raw)
+        players = payload["players"]
+        loser = payload["loser"]
+    except Exception:
+        flash("결과 데이터 오류", "danger")
+        return redirect(url_for("ladder_game"))
+
+    rule_text = "사다리 애니메이션 (랜덤 가로줄)"
     upsert_hogu_loss(loser, 1)
     db_execute(
         "INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?);",
@@ -1783,24 +1895,21 @@ def ladder_game():
     )
     get_db().commit()
 
-    # ---------- 결과 화면 ----------
     lis = "".join([
         f"<li>{html_escape(p)}{' <b class=\"text-danger\">(호구)</b>' if p==loser else ''}</li>"
         for p in players
     ])
     body = f"""
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <h5 class="card-title">🎉 사다리 결과</h5>
-        <div class="text-muted mb-2">룰: {html_escape(rule_text)}</div>
-        <ul class="mb-3">{lis}</ul>
-        <div class="alert alert-success"><b>호구:</b> {html_escape(loser)}</div>
-        <div class="d-flex gap-2">
-          <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">게임 홈</a>
-          <a class="btn btn-primary" href="{ url_for('ladder_game') }">다시 하기</a>
-        </div>
+    <div class="card shadow-sm"><div class="card-body">
+      <h5 class="card-title">🎉 사다리 결과</h5>
+      <div class="text-muted mb-2">룰: {html_escape(rule_text)}</div>
+      <ul>{lis}</ul>
+      <div class="alert alert-success"><b>호구:</b> {html_escape(loser)}</div>
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">게임 홈</a>
+        <a class="btn btn-primary" href="{ url_for('ladder_game') }">다시 하기</a>
       </div>
-    </div>
+    </div></div>
     """
     return render(body)
 
