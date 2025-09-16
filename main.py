@@ -188,9 +188,9 @@ BASE = """
   <style>
     :root { --brand-green: #00854A; }
     body {
-  background: url("{{ url_for('static', filename='bg-hex.jpg') }}") repeat;
-  background-size: 250px auto;
-}
+      background: url("{{ url_for('static', filename='bg-hex.jpg') }}") repeat;
+      background-size: 250px auto;
+    }
     body { padding-bottom: 40px; }
     .num { text-align: right; }
     .table-sm td, .table-sm th { padding:.45rem; }
@@ -201,60 +201,60 @@ BASE = """
     header.topbar a, header.topbar .nav-link { color:#fff !important; }
     header.topbar .nav-link:hover { opacity:.9; }
     /* ===== Convex(볼록) Nav Buttons ===== */
-header.topbar .nav.nav-pills.nav-convex .nav-link {
-  position: relative;
-  border-radius: 999px;
-  padding: .25rem .6rem;
-  font-size: .85rem;
-  line-height: 1.2;
-  font-weight: 600;
-  background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0));
-  color: #fff !important;
-  border: 1px solid rgba(255,255,255,.22);
-  box-shadow:
-    0 2px 4px rgba(0,0,0,.25),
-    inset 0 1.5px 0 rgba(255,255,255,.25),
-    inset 0 -2px 6px rgba(0,0,0,.18);
-  transition: transform .08s ease, box-shadow .12s ease, background-color .12s ease;
-  backdrop-filter: saturate(120%);
-}
+    header.topbar .nav.nav-pills.nav-convex .nav-link {
+      position: relative;
+      border-radius: 999px;
+      padding: .25rem .6rem;
+      font-size: .85rem;
+      line-height: 1.2;
+      font-weight: 600;
+      background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0));
+      color: #fff !important;
+      border: 1px solid rgba(255,255,255,.22);
+      box-shadow:
+        0 2px 4px rgba(0,0,0,.25),
+        inset 0 1.5px 0 rgba(255,255,255,.25),
+        inset 0 -2px 6px rgba(0,0,0,.18);
+      transition: transform .08s ease, box-shadow .12s ease, background-color .12s ease;
+      backdrop-filter: saturate(120%);
+    }
 
-header.topbar .nav.nav-pills.nav-convex .nav-link:hover {
-  box-shadow:
-    0 3px 6px rgba(0,0,0,.28),
-    inset 0 2px 0 rgba(255,255,255,.28),
-    inset 0 -3px 8px rgba(0,0,0,.22);
-  text-decoration: none;
-}
+    header.topbar .nav.nav-pills.nav-convex .nav-link:hover {
+      box-shadow:
+        0 3px 6px rgba(0,0,0,.28),
+        inset 0 2px 0 rgba(255,255,255,.28),
+        inset 0 -3px 8px rgba(0,0,0,.22);
+      text-decoration: none;
+    }
 
-header.topbar .nav.nav-pills.nav-convex .nav-link.active,
-header.topbar .nav.nav-pills.nav-convex .nav-link:focus {
-  background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,.06));
-  transform: translateY(1px);
-  box-shadow:
-    0 1px 3px rgba(0,0,0,.22),
-    inset 0 1px 0 rgba(255,255,255,.35),
-    inset 0 -1px 6px rgba(0,0,0,.25);
-  color: #fff !important;
-  border-color: rgba(255,255,255,.3);
-}
+    header.topbar .nav.nav-pills.nav-convex .nav-link.active,
+    header.topbar .nav.nav-pills.nav-convex .nav-link:focus {
+      background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,.06));
+      transform: translateY(1px);
+      box-shadow:
+        0 1px 3px rgba(0,0,0,.22),
+        inset 0 1px 0 rgba(255,255,255,.35),
+        inset 0 -1px 6px rgba(0,0,0,.25);
+      color: #fff !important;
+      border-color: rgba(255,255,255,.3);
+    }
 
-/* 모바일 간격 조정 */
-@media (max-width: 576px) {
-  header.topbar .nav.nav-pills.nav-convex .nav-link { padding: .4rem .75rem; }
-}
-/* ===== Meals table upgrades ===== */
-.table-scroll { overflow-x: auto; }
-.table-minwide { min-width: 900px; } /* 필요시 숫자 조절 */
-.table-sticky thead th {
-  position: sticky; top: 0;
-  background: #fff; z-index: 2;  /* 헤더가 내용 위에 오도록 */
-}
-.table-nowrap th, .table-nowrap td { white-space: nowrap; }
-.meals-actions .btn { margin-right: .25rem; } /* 버튼 간 살짝 간격 */
-@media (max-width: 576px) {
-  .table-minwide { min-width: 720px; }
-}
+    /* 모바일 간격 조정 */
+    @media (max-width: 576px) {
+      header.topbar .nav.nav-pills.nav-convex .nav-link { padding: .4rem .75rem; }
+    }
+    /* ===== Meals table upgrades ===== */
+    .table-scroll { overflow-x: auto; }
+    .table-minwide { min-width: 900px; } /* 필요시 숫자 조절 */
+    .table-sticky thead th {
+      position: sticky; top: 0;
+      background: #fff; z-index: 2;
+    }
+    .table-nowrap th, .table-nowrap td { white-space: nowrap; }
+    .meals-actions .btn { margin-right: .25rem; }
+    @media (max-width: 576px) {
+      .table-minwide { min-width: 720px; }
+    }
   </style>
 </head>
 <body class="bg-light">
@@ -289,9 +289,8 @@ header.topbar .nav.nav-pills.nav-convex .nav-link:focus {
 </body>
 </html>
 """
-
 def render(body_html, **ctx):
-    # BASE 템플릿에 body_html 꽂아서 렌더
+    # BASE 템플릿에 body_html 꽂아서 렌더링
     return render_template_string(BASE, body=body_html, **ctx)
     
 # ------------------ 로그인/로그아웃/핑 ------------------
