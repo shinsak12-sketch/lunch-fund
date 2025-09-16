@@ -1727,6 +1727,7 @@ def dice_game():
     """
     return render(body)
 
+# ================= 사라디게임 ===================
 @app.route("/games/ladder", methods=["GET","POST"])
 def ladder_game():
     members = get_members()
@@ -1737,22 +1738,71 @@ def ladder_game():
         body = f"""
         <div class="card shadow-sm"><div class="card-body">
           <h5 class="card-title">사다리 게임</h5>
+          <p class="text-muted">플레이어를 선택하고 시작하세요. (임시 규칙: 무작위로 1명 호구)</p>
           <form method="post">
             <div class="mb-2">
               <label class="form-label">플레이어</label>
               <select class="form-select" name="players" multiple size="8">{opts}</select>
-              <div class="form-text">게스트는 아래에 쉼표로 입력(선택)</div>
+              <div class="form-text">여러 명 선택: 데스크탑은 Ctrl/Command, 모바일은 길게 터치</div>
             </div>
             <div class="mb-2">
               <label class="form-label">게스트 (쉼표로 구분)</label>
               <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
             </div>
-            <button class="btn btn-primary">게임 시작</button>
-            <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
+            <div class="d-flex gap-2">
+              <button class="btn btn-primary">게임 시작</button>
+              <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
+            </div>
           </form>
         </div></div>
         """
         return render(body)
+
+    # ---------- POST: 참가자 검증 & 결과 계산 ----------
+    players, _ = parse_players()
+    if len(players) < 2:
+        flash("2명 이상 선택하세요.", "warning")
+        return redirect(url_for("ladder_game"))
+
+    # [간단 규칙] 시각화 없이 무작위로 한 명을 패자로 선정
+    loser = random.choice(players)
+    rule_text = "사다리(무작위 패자, 시각화 생략)"
+
+    # 통계/기록 저장
+    upsert_hogu_loss(loser, 1)
+    db_execute(
+        "INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?);",
+        (
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "ladder",
+            rule_text,
+            json.dumps(players, ensure_ascii=False),
+            loser,
+            json.dumps({}, ensure_ascii=False),
+        ),
+    )
+    get_db().commit()
+
+    # ---------- 결과 화면 ----------
+    lis = "".join([
+        f"<li>{html_escape(p)}{' <b class=\"text-danger\">(호구)</b>' if p==loser else ''}</li>"
+        for p in players
+    ])
+    body = f"""
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">🎉 사다리 결과</h5>
+        <div class="text-muted mb-2">룰: {html_escape(rule_text)}</div>
+        <ul class="mb-3">{lis}</ul>
+        <div class="alert alert-success"><b>호구:</b> {html_escape(loser)}</div>
+        <div class="d-flex gap-2">
+          <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">게임 홈</a>
+          <a class="btn btn-primary" href="{ url_for('ladder_game') }">다시 하기</a>
+        </div>
+      </div>
+    </div>
+    """
+    return render(body)
 
 # ===== 외톨이게임: Flask 라우트 (수정 버전, 전체) =====
 import random, re
