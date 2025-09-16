@@ -1865,13 +1865,13 @@ def ladder_game():
           // 가로줄
           ctx.strokeStyle = '#444';
           ctx.lineWidth = 2;
-          rungs.forEach(({r,c}) => {{
-            const y = yOfRow(r);
+          rungs.forEach(function(rc){
+            const y = yOfRow(rc.r);
             ctx.beginPath();
-            ctx.moveTo(xOfCol(c), y);
-            ctx.lineTo(xOfCol(c+1), y);
+            ctx.moveTo(xOfCol(rc.c), y);
+            ctx.lineTo(xOfCol(rc.c + 1), y);
             ctx.stroke();
-          }});
+          });
 
           // 상단 이름
           ctx.fillStyle = '#111';
@@ -1900,10 +1900,13 @@ def ladder_game():
           let pos = Array.from({{length:cols}}, (_,i)=>i);
           // 각 row마다 가로줄 만나면 swap
           for (let r=1; r<rows; r++) {{
-            rungs.forEach(({r:rr,c}) => {{
-              if (rr===r) {{
-                let t = pos[c]; pos[c] = pos[c+1]; pos[c+1] = t;
-              }}
+          rungs.forEach(function(rc){
+            if (rc.r === r) {
+            let t = pos[rc.c];
+            pos[rc.c] = pos[rc.c + 1];
+            pos[rc.c + 1] = t;  
+            }
+           });
             }});
           }}
           return pos;
@@ -1924,7 +1927,9 @@ def ladder_game():
         // 매 row마다 해당 col에 가로줄이 있는지 빠르게 찾기 위해 맵 만들기
         const rungMap = new Map(); // key: row -> Set(cols)
         for (let r=1;r<rows;r++) rungMap.set(r, new Set());
-        rungs.forEach(({r,c}) => rungMap.get(r).add(c));
+        rungs.forEach(function(rc){
+          rungMap.get(rc.r).add(rc.c);
+        });
 
         const speedY = 2.4;   // 세로 이동 px/frame
         const speedX = 4.2;   // 가로 이동 px/frame
