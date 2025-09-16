@@ -190,71 +190,49 @@ BASE = """
     body {
       background: url("{{ url_for('static', filename='bg-hex.jpg') }}") repeat;
       background-size: 250px auto;
+      padding-bottom: 40px;
     }
-    body { padding-bottom: 40px; }
     .num { text-align: right; }
     .table-sm td, .table-sm th { padding:.45rem; }
     ul.compact li { margin-bottom: .25rem; }
     .form-text { font-size: .85rem; }
 
+    /* 상단바 & 볼록 버튼 */
     header.topbar { background: var(--brand-green); color:#fff; }
     header.topbar a, header.topbar .nav-link { color:#fff !important; }
     header.topbar .nav-link:hover { opacity:.9; }
-    /* ===== Convex(볼록) Nav Buttons ===== */
+
     header.topbar .nav.nav-pills.nav-convex .nav-link {
-      position: relative;
-      border-radius: 999px;
-      padding: .25rem .6rem;
-      font-size: .85rem;
-      line-height: 1.2;
-      font-weight: 600;
+      position: relative; border-radius: 999px;
+      padding: .25rem .6rem; font-size: .85rem; line-height:1.2; font-weight:600;
       background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0));
-      color: #fff !important;
       border: 1px solid rgba(255,255,255,.22);
-      box-shadow:
-        0 2px 4px rgba(0,0,0,.25),
-        inset 0 1.5px 0 rgba(255,255,255,.25),
-        inset 0 -2px 6px rgba(0,0,0,.18);
+      box-shadow: 0 2px 4px rgba(0,0,0,.25), inset 0 1.5px 0 rgba(255,255,255,.25), inset 0 -2px 6px rgba(0,0,0,.18);
       transition: transform .08s ease, box-shadow .12s ease, background-color .12s ease;
       backdrop-filter: saturate(120%);
     }
-
     header.topbar .nav.nav-pills.nav-convex .nav-link:hover {
-      box-shadow:
-        0 3px 6px rgba(0,0,0,.28),
-        inset 0 2px 0 rgba(255,255,255,.28),
-        inset 0 -3px 8px rgba(0,0,0,.22);
+      box-shadow: 0 3px 6px rgba(0,0,0,.28), inset 0 2px 0 rgba(255,255,255,.28), inset 0 -3px 8px rgba(0,0,0,.22);
       text-decoration: none;
     }
-
     header.topbar .nav.nav-pills.nav-convex .nav-link.active,
     header.topbar .nav.nav-pills.nav-convex .nav-link:focus {
       background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,.06));
       transform: translateY(1px);
-      box-shadow:
-        0 1px 3px rgba(0,0,0,.22),
-        inset 0 1px 0 rgba(255,255,255,.35),
-        inset 0 -1px 6px rgba(0,0,0,.25);
-      color: #fff !important;
+      box-shadow: 0 1px 3px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 6px rgba(0,0,0,.25);
       border-color: rgba(255,255,255,.3);
     }
+    @media (max-width: 576px) {
+      header.topbar .nav.nav-pills.nav-convex .nav-link { padding:.35rem .6rem; font-size:.82rem; }
+      header.topbar .container.py-2 { padding-top:.5rem !important; padding-bottom:.5rem !important; }
+    }
 
-    /* 모바일 간격 조정 */
-    @media (max-width: 576px) {
-      header.topbar .nav.nav-pills.nav-convex .nav-link { padding: .4rem .75rem; }
-    }
-    /* ===== Meals table upgrades ===== */
-    .table-scroll { overflow-x: auto; }
-    .table-minwide { min-width: 900px; } /* 필요시 숫자 조절 */
-    .table-sticky thead th {
-      position: sticky; top: 0;
-      background: #fff; z-index: 2;
-    }
-    .table-nowrap th, .table-nowrap td { white-space: nowrap; }
-    .meals-actions .btn { margin-right: .25rem; }
-    @media (max-width: 576px) {
-      .table-minwide { min-width: 720px; }
-    }
+    /* 테이블 개선 */
+    .table-scroll { overflow-x:auto; }
+    .table-minwide { min-width: 900px; }
+    .table-sticky thead th { position:sticky; top:0; background:#fff; z-index:2; }
+    .table-nowrap th, .table-nowrap td { white-space:nowrap; }
+    @media (max-width: 576px) { .table-minwide { min-width:720px; } }
   </style>
 </head>
 <body class="bg-light">
@@ -289,6 +267,7 @@ BASE = """
 </body>
 </html>
 """
+
 def render(body_html, **ctx):
     # BASE 템플릿에 body_html 꽂아서 렌더링
     return render_template_string(BASE, body=body_html, **ctx)
@@ -1731,410 +1710,272 @@ def dice_game():
 def ladder_game():
     members = get_members()
 
-    # 1) 설정 폼
-    if request.method == "GET":
-        opts = "".join([f"<option value='{m}'>{m}</option>" for m in members])
-        body = f"""
-        <div class="card shadow-sm"><div class="card-body">
-          <h5 class="card-title">사다리 게임</h5>
-          <p class="text-muted mb-2">플레이어를 선택하고 시작하세요. (전원 동시에 내려가는 애니메이션)</p>
-          <form method="post">
-            <div class="mb-2">
-              <label class="form-label">플레이어</label>
-              <select class="form-select" name="players" multiple size="8">{opts}</select>
-              <div class="form-text">여러 명 선택: 데스크탑은 Ctrl/Command, 모바일은 길게 터치</div>
-            </div>
-            <div class="mb-2">
-              <label class="form-label">게스트 (쉼표로 구분)</label>
-              <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
-            </div>
-            <div class="d-flex gap-2">
-              <button class="btn btn-primary">게임 시작</button>
-              <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">뒤로</a>
-            </div>
-          </form>
-        </div></div>
-        """
-        return render(body)
-
-    # 2) POST: 참가자 확정 (위 이름 순서는 랜덤)
-    players, _ = parse_players()
-    if len(players) < 3:
-        flash("3명 이상 추천합니다. (2명도 가능하나 재미가 줄어요)", "warning")
-        return redirect(url_for("ladder_game"))
-
-    top_players = players[:]          # 상단 표시용
-    random.shuffle(top_players)       # 위 이름 순서 랜덤
-
-    n = len(top_players)
-
-    # 아래 결과 라벨: '호구' 1, '조커' 1, 나머지 '승리'
-    bottom_labels = ["호구", "조커"] + ["승리"] * (n - 2)
-    random.shuffle(bottom_labels)
-
-    # 사다리 가로줄 생성(겹침 최소화)
-    rows = 22
-    rung_prob = 0.35
-    rungs = []  # list of (row_index, col_index) where rung connects col and col+1
-    for r in range(1, rows):
-        last_c = -2
-        for c in range(n - 1):
-            if random.random() < rung_prob and (c - last_c) > 1:
-                rungs.append((r, c))
-                last_c = c
-
-    DATA = json.dumps({
-        "players": top_players,
-        "bottom_labels": bottom_labels,
-        "rows": rows,
-        "rungs": rungs,   # 예: [[3,1],[5,2],...]
-    }, ensure_ascii=False)
-
-    # 3) 진행 화면 + 애니메이션
-    body = f"""
+    # 템플릿들(Jinja — f-string 아님)
+    LADDER_FORM = """
     <div class="card shadow-sm"><div class="card-body">
-      <h5 class="card-title">🎯 사다리 게임 – 진행</h5>
-      <p class="text-muted">위 이름 순서는 랜덤입니다. 시작을 누르면 전원이 동시에 내려갑니다.</p>
-
-      <div id="ladderWrap" class="mb-2" style="overflow-x:auto;">
-        <canvas id="ladderCanvas" height="520"></canvas>
-      </div>
-
-      <div class="d-flex gap-2">
-        <button id="startBtn" class="btn btn-success">모두 시작</button>
-        <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">게임 홈</a>
-      </div>
-
-      <div id="infoBox" class="alert alert-info mt-3 d-none"></div>
-      <div id="resultBox" class="alert alert-warning mt-2 d-none"></div>
-
-      <form id="saveForm" method="post" action="{ url_for('ladder_game_result') }" class="d-none">
-        <input type="hidden" name="final_payload" id="final_payload">
+      <h5 class="card-title">사다리 게임</h5>
+      <form method="post">
+        <div class="mb-2">
+          <label class="form-label">플레이어</label>
+          <select class="form-select" name="players" multiple size="8">
+            {% for m in members %}<option value="{{m}}">{{m}}</option>{% endfor %}
+          </select>
+          <div class="form-text">게스트는 아래에 쉼표로 입력(선택)</div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">게스트 (쉼표로 구분)</label>
+          <input class="form-control" name="guests" placeholder="예: 홍길동, 김게스트">
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-primary">게임 시작</button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('games_home') }}">뒤로</a>
+        </div>
       </form>
+    </div></div>
+    """
 
-      <style>
-        #ladderCanvas {{ background:#fff; border:1px solid #e5e7eb; border-radius:8px; }}
-        .keyline {{ font-size:12px; }}
-      </style>
+    LADDER_PLAY = """
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="card-title mb-0">사다리 게임</h5>
+          <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('games_home') }}">뒤로</a>
+          </div>
+        </div>
 
-      <script>
-        const DATA = {DATA};
+        <div class="text-muted mb-2">위의 이름 순서는 랜덤입니다. <b>시작</b>을 누르면 전원이 동시에 내려갑니다.</div>
+        <div class="mb-2"><button id="startBtn" class="btn btn-success btn-sm">시작</button></div>
 
-        // --- 기본 레이아웃 값 ---
-        const colW = 120;      // 세로줄 간격
-        const topH = 60;       // 위 이름 표시 높이
-        const botH = 60;       // 아래 라벨 표시 높이
-        const rowH = 18;       // 가로줄 간격
-        const cols = DATA.players.length;
-        const rows = DATA.rows;
-        const width = colW * (cols - 1) + 140;   // 여백 포함
-        const height = topH + rowH * rows + botH;
+        <canvas id="ladder" width="900" height="520" class="w-100 border rounded"></canvas>
 
-        const cv = document.getElementById('ladderCanvas');
-        const ctx = cv.getContext('2d');
-        cv.width = Math.max(width, 600);
-        cv.height = height;
+        <div class="alert alert-warning mt-3 d-none" id="jokerBox"></div>
+        <div class="alert alert-info mt-2 d-none" id="resultBox"></div>
+      </div>
+    </div>
 
-        // rungs: 배열 [[r,c], ...]  (row r에 c~c+1 연결)
-        const rungs = DATA.rungs.map(rc => {{ return {{ r: rc[0], c: rc[1] }}; }});
+    <script>
+      const DATA = {{ data|tojson }};
 
-        // --- 유틸 ---
-        function xOfCol(c) {{
-          // c=0~(cols-1)
-          return 70 + c * colW;
-        }}
-        function yOfRow(r) {{
-          // r=0~rows (0이 top 시작점)
-          return topH + r * rowH;
-        }}
+      const cvs = document.getElementById('ladder');
+      const ctx = cvs.getContext('2d');
+      const startBtn = document.getElementById('startBtn');
+      const W = cvs.width, H = cvs.height;
 
-        // --- 사다리 그리기 ---
-        function drawBase() {{
-          ctx.clearRect(0,0,cv.width,cv.height);
+      // 레이아웃
+      const N = DATA.players.length;
+      const colGap = Math.min(120, Math.max(70, Math.floor((W - 100) / (N - 1))));
+      const left = Math.floor((W - colGap * (N - 1)) / 2);
+      const top = 60, bottom = H - 80;
+      const rows = DATA.rows;
+      const rowGap = Math.floor((bottom - top) / rows);
 
-          // 세로줄
-          ctx.strokeStyle = '#111';
-          ctx.lineWidth = 2;
-          for (let c=0;c<cols;c++) {{
-            ctx.beginPath();
-            ctx.moveTo(xOfCol(c), yOfRow(0));
-            ctx.lineTo(xOfCol(c), yOfRow(rows));
-            ctx.stroke();
-          }}
+      const xOfCol = (c) => left + c * colGap;
+      const yOfRow = (r) => top + r * rowGap;
 
-          // 가로줄
-          ctx.strokeStyle = '#444';
-          ctx.lineWidth = 2;
-          rungs.forEach(function(rc){
-            const y = yOfRow(rc.r);
-            ctx.beginPath();
-            ctx.moveTo(xOfCol(rc.c), y);
-            ctx.lineTo(xOfCol(rc.c + 1), y);
-            ctx.stroke();
-          });
+      const rungs = DATA.rungs; // [{r,c},...]
 
-          // 상단 이름
-          ctx.fillStyle = '#111';
-          ctx.font = '600 14px system-ui, -apple-system, Segoe UI, Roboto';
-          ctx.textAlign = 'center';
-          for (let i=0;i<cols;i++) {{
-            ctx.fillText(DATA.players[i], xOfCol(i), 24);
-          }}
+      // 텍스트
+      ctx.font = '14px system-ui, -apple-system, Segoe UI, Roboto, Apple SD Gothic Neo, Noto Sans KR';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
 
-          // 하단 라벨
-          for (let i=0;i<cols;i++) {{
-            const label = DATA.bottom_labels[i];
-            let color = (label==='호구') ? '#dc3545' : (label==='조커') ? '#ffc107' : '#198754';
-            ctx.fillStyle = color;
-            ctx.fillRect(xOfCol(i)-34, yOfRow(rows)+12, 68, 24);
-            ctx.fillStyle = (label==='조커') ? '#000' : '#fff';
-            ctx.font = '700 13px system-ui';
-            ctx.fillText(label, xOfCol(i), yOfRow(rows)+30);
-          }}
-        }}
-        drawBase();
+      function drawBase() {
+        ctx.clearRect(0, 0, W, H);
 
-        // --- 경로 계산용(도착 칸 계산) ---
-        function computeEndColumns() {{
-          // pos[c] = c에서 출발한 사람이 최종 도착하는 칸 index
-          let pos = Array.from({{length:cols}}, (_,i)=>i);
-          // 각 row마다 가로줄 만나면 swap
-          for (let r=1; r<rows; r++) {{
-          rungs.forEach(function(rc){
-            if (rc.r === r) {
-            let t = pos[rc.c];
-            pos[rc.c] = pos[rc.c + 1];
-            pos[rc.c + 1] = t;  
-            }
-           });
-            }});
-          }}
-          return pos;
-        }}
+        // 상단 이름
+        for (let i = 0; i < N; i++) {
+          ctx.fillStyle = '#222';
+          ctx.fillText(DATA.players[i], xOfCol(i), top - 25);
+        }
 
-        // --- 주자들(전원 동시에) ---
-        const runners = Array.from({{length:cols}}, (_,i)=>{{
-          return {{
-            col: i,
-            y: yOfRow(0),
-            targetCol: i, // 현재 가로줄에서 이동할 목표 col
-            seg: 0,       // 0=세로이동, 1=가로이동
-            rungIndex: 0, // 다음에 만날 row 인덱스
-            done: false,
-          }};
-        }});
+        // 세로줄
+        ctx.strokeStyle = '#2a6f97';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < N; i++) {
+          ctx.beginPath(); ctx.moveTo(xOfCol(i), top); ctx.lineTo(xOfCol(i), bottom); ctx.stroke();
+        }
 
-        // 매 row마다 해당 col에 가로줄이 있는지 빠르게 찾기 위해 맵 만들기
-        const rungMap = new Map(); // key: row -> Set(cols)
-        for (let r=1;r<rows;r++) rungMap.set(r, new Set());
-        rungs.forEach(function(rc){
-          rungMap.get(rc.r).add(rc.c);
+        // 가로줄
+        ctx.strokeStyle = '#94d2bd';
+        ctx.lineWidth = 3;
+        rungs.forEach(rc => {
+          const y = yOfRow(rc.r);
+          ctx.beginPath(); ctx.moveTo(xOfCol(rc.c), y); ctx.lineTo(xOfCol(rc.c+1), y); ctx.stroke();
         });
 
-        const speedY = 2.4;   // 세로 이동 px/frame
-        const speedX = 4.2;   // 가로 이동 px/frame
+        // 하단 대기표시
+        ctx.fillStyle = '#666';
+        for (let i = 0; i < N; i++) ctx.fillText('대기', xOfCol(i), bottom + 25);
+      }
 
-        let animating = false;
+      function computeEndColumns() {
+        // 시작열 i → 도착열 pos[i]
+        const pos = Array.from({length: N}, (_, i) => i);
+        for (let r = 0; r < rows; r++) {
+          rungs.forEach(rc => {
+            if (rc.r === r) {
+              const t = pos[rc.c];
+              pos[rc.c] = pos[rc.c+1];
+              pos[rc.c+1] = t;
+            }
+          });
+        }
+        return pos;
+      }
 
-        function step() {{
-          drawBase();
+      drawBase();
+      const endCols = computeEndColumns();
 
-          let finished = 0;
-          runners.forEach(r => {{
-            if (r.done) {{ finished++; drawRunner(r); return; }}
+      // 애니메이션
+      let t0 = 0, req = null;
+      const DUR = 900; // ms
 
-            if (r.seg === 0) {{
-              // 세로이동
-              r.y += speedY;
-              // 가로줄 만나는지 체크 (해당 행 y 이상 진입)
-              const nextRow = r.rungIndex + 1; // 1부터 rows-1까지
-              if (nextRow < rows) {{
-                const yRow = yOfRow(nextRow);
-                if (r.y >= yRow) {{
-                  // 이 row에 r.col에서 오른쪽으로 가는 가로줄이 있으면 가로 세그먼트로 전환
-                  const colsSet = rungMap.get(nextRow);
-                  if (colsSet && colsSet.has(r.col)) {{
-                    r.seg = 1;         // 가로 이동
-                    r.targetCol = r.col + 1;
-                    r.y = yRow;        // 딱 라인 높이에 맞춰줌
-                  }} else if (colsSet && colsSet.has(r.col - 1)) {{
-                    r.seg = 1;         // 가로 이동(좌)
-                    r.targetCol = r.col - 1;
-                    r.y = yRow;
-                  }}
-                  r.rungIndex = nextRow;
-                }}
-              }}
-              if (r.y >= yOfRow(rows)) {{
-                r.y = yOfRow(rows);
-                r.done = true;
-                finished++;
-              }}
-            }} else {{
-              // 가로이동
-              const fromX = xOfCol(r.col);
-              const toX   = xOfCol(r.targetCol);
-              const dir = (toX > fromX) ? 1 : -1;
-              let nx = fromX + dir * speedX;
+      function drawFrame(p) {
+        drawBase();
+        // 내려가는 점
+        for (let i = 0; i < N; i++) {
+          const y = top + (bottom - top) * p;
+          let x = xOfCol(i);
 
-              // 도착 판정
-              if ((dir>0 && nx >= toX) || (dir<0 && nx <= toX)) {{
-                // 가로이동 종료 → 세로로 계속
-                r.col = r.targetCol;
-                r.seg = 0;
-              }} else {{
-                // 임시로 x를 보관해서 그리기만 사용
-                drawRunner(r, nx);
-                return;
-              }}
-            }}
+          const rFloat = (y - top) / rowGap;
+          const rNear = [Math.floor(rFloat)-1, Math.floor(rFloat), Math.ceil(rFloat), Math.ceil(rFloat)+1];
 
-            drawRunner(r);
-          }});
+          let moved = false;
+          rNear.forEach(rr => {
+            rungs.forEach(rc => {
+              if (rc.r === rr) {
+                const yy = yOfRow(rr);
+                if (Math.abs(yy - y) < 3.5) {
+                  if (i === rc.c) { x = xOfCol(i+1); moved = true; }
+                  else if (i === rc.c+1) { x = xOfCol(i-1); moved = true; }
+                }
+              }
+            });
+          });
 
-          if (finished === cols) {{
-            animating = false;
-            onArrive();
-          }} else {{
-            requestAnimationFrame(step);
-          }}
-        }}
+          ctx.fillStyle = moved ? '#e76f51' : '#1d3557';
+          ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI*2); ctx.fill();
+        }
+      }
 
-        function drawRunner(r, tempX=null) {{
-          const x = (tempX!==null) ? tempX : xOfCol(r.col);
-          ctx.fillStyle = '#0d6efd';
-          ctx.beginPath();
-          ctx.arc(x, r.y, 6, 0, Math.PI*2);
-          ctx.fill();
-        }}
+      function step(ts){
+        if (!t0) t0 = ts;
+        const p = Math.min(1, (ts - t0)/DUR);
+        drawFrame(p);
+        if (p < 1) req = requestAnimationFrame(step);
+        else finish();
+      }
 
-        function onArrive() {{
-          // 최종 매핑 구하기 (애니메이션과 동일 로직)
-          const endCols = computeEndColumns();
-          // endCols[startCol] = 도착 칸
-          // 각 startCol는 top 이름 index이므로, 사람별 결과 라벨 매핑
-          const results = [];
-          for (let sc=0; sc<cols; sc++) {{
-            const endC = endCols[sc];
-            const name = DATA.players[sc];
-            const label = DATA.bottom_labels[endC];
-            results.push({{ name, endC, label }});
-          }}
+      function finish(){
+        ctx.font = 'bold 14px system-ui, -apple-system, Segoe UI, Roboto, Apple SD Gothic Neo, Noto Sans KR';
+        for (let i = 0; i < N; i++) {
+          ctx.fillStyle = '#111';
+          ctx.fillText(DATA.outcomes[endCols[i]], xOfCol(i), bottom + 25);
+        }
 
-          // 기본 호구 & 조커
-          const baseLoser = (results.find(r => r.label==='호구') || {{name:null}}).name;
-          const jokerPerson = (results.find(r => r.label==='조커') || {{name:null}}).name;
+        const jokerBox = document.getElementById('jokerBox');
+        const resultBox = document.getElementById('resultBox');
 
-          // 조커 효과: 3가지 중 하나
-          const effects = ['win','become_loser','swap_random'];
-          const jokerEffect = effects[Math.floor(Math.random()*effects.length)];
+        let effectLabel = '';
+        if (DATA.joker_effect === 'win') effectLabel = '승리 🎉';
+        else if (DATA.joker_effect === 'become_loser') effectLabel = '호구와 체인지 → 조커가 호구';
+        else effectLabel = '임의 승리자와 호구 교체';
 
-          // 최종 호구 계산
-          let finalLoser = baseLoser;
-          if (jokerPerson) {{
-            if (jokerEffect === 'win') {{
-              finalLoser = baseLoser;
-            }} else if (jokerEffect === 'become_loser') {{
-              finalLoser = jokerPerson;
-            }} else {{
-              // 임의 승리자와 호구 교체
-              const winners = results.filter(r => r.name !== baseLoser && r.name !== jokerPerson);
-              if (winners.length) {{
-                finalLoser = winners[Math.floor(Math.random()*winners.length)].name;
-              }}
-            }}
-          }}
+        jokerBox.classList.remove('d-none');
+        jokerBox.innerHTML = '조커: <b>' + DATA.joker_person + '</b> · 효과: <b>' + effectLabel + '</b>';
 
-          // 안내 출력
-          const infoBox = document.getElementById('infoBox');
-          const resultBox = document.getElementById('resultBox');
-          infoBox.classList.remove('d-none');
-          infoBox.innerHTML =
-            '기본 호구: <b>' + (baseLoser || '(없음)') + '</b><br>' +
-            '조커: <b>' + (jokerPerson || '(없음)') + '</b>' +
-            (jokerPerson ? ' · 효과: <b>' + (jokerEffect==='win' ? '승리 🎉' : (jokerEffect==='become_loser' ? '호구와 체인지 → 조커가 호구' : '임의 승리자와 호구 교체')) + '</b>' : '');
+        resultBox.classList.remove('d-none');
+        resultBox.innerHTML = '기본 호구: ' + DATA.base_loser + ' → <b>최종 호구: ' + DATA.final_loser + '</b>';
+      }
 
-          resultBox.classList.remove('d-none');
-          resultBox.innerHTML = '최종 호구: <b>' + (finalLoser || '(없음)') + '</b>';
-
-          // 서버 저장
-          const payload = {{
-            players: DATA.players,
-            bottom_labels: DATA.bottom_labels,
-            rungs: rungs,
-            base_loser: baseLoser,
-            joker_person: jokerPerson,
-            joker_effect: jokerEffect,
-            final_loser: finalLoser
-          }};
-          document.getElementById('final_payload').value = JSON.stringify(payload);
-          document.getElementById('saveForm').submit();
-        }}
-
-        document.getElementById('startBtn').addEventListener('click', () => {{
-          if (animating) return;
-          animating = true;
-          requestAnimationFrame(step);
-        }});
-      </script>
-    </div></div>
+      startBtn.addEventListener('click', () => {
+        if (req) cancelAnimationFrame(req);
+        t0 = 0; req = requestAnimationFrame(step);
+      });
+    </script>
     """
-    return render(body)
 
-# 결과 저장
-@app.post("/games/ladder/result")
-def ladder_game_result():
-    raw = request.form.get("final_payload")
-    try:
-        data = json.loads(raw)
-    except Exception:
-        flash("결과 데이터 오류", "danger")
-        return redirect(url_for("ladder_game"))
+    # ---------- GET: 설정 폼 ----------
+    if request.method == "GET":
+        body = render_template_string(LADDER_FORM, members=members)
+        return render(body)
 
-    players      = data.get("players", [])
-    base_loser   = data.get("base_loser")
-    joker_person = data.get("joker_person")
-    joker_effect = data.get("joker_effect")
-    final_loser  = data.get("final_loser")
+    # ---------- POST: 게임 데이터 생성 ----------
+    # 선택 플레이어 + 게스트 파싱
+    selected = request.form.getlist("players")
+    guests = [g.strip() for g in (request.form.get("guests") or "").split(",") if g.strip()]
+    players = selected + guests
+    players = [p for p in players if p]
 
-    # DB 기록
-    rule_text = f"사다리(동시 애니메이션) · 조커효과={joker_effect}"
-    upsert_hogu_loss(final_loser, 1 if final_loser else 0)
-    db_execute(
-        "INSERT INTO games(dt, game_type, rule, participants, loser, extra) VALUES (?,?,?,?,?,?);",
-        (
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "ladder",
-            rule_text,
-            json.dumps(players, ensure_ascii=False),
-            final_loser,
-            json.dumps(
-                {
-                    "base_loser": base_loser,
-                    "joker_person": joker_person,
-                    "joker_effect": joker_effect,
-                },
-                ensure_ascii=False,
-            ),
-        ),
-    )
-    get_db().commit()
+    if len(players) < 3:
+        flash("플레이어를 3명 이상 선택/입력하세요.", "warning")
+        body = render_template_string(LADDER_FORM, members=members)
+        return render(body)
 
-    # 결과 화면
-    lis = "".join([f"<li>{html_escape(p)}{' <b class=\"text-danger\">(호구)</b>' if p==final_loser else ''}</li>" for p in players])
-    body = f"""
-    <div class="card shadow-sm"><div class="card-body">
-      <h5 class="card-title">🎉 사다리 결과</h5>
-      <div class="text-muted mb-2">룰: {html_escape(rule_text)}</div>
-      <div class="mb-2">기본 호구: <b>{html_escape(base_loser or '(없음)')}</b> · 조커: <b>{html_escape(joker_person or '(없음)')}</b> · 효과: <b>{html_escape(joker_effect or '(없음)')}</b></div>
-      <ul class="mb-3">{lis}</ul>
-      <div class="alert alert-success"><b>최종 호구:</b> {html_escape(final_loser or '(없음)')}</div>
-      <div class="d-flex gap-2">
-        <a class="btn btn-outline-secondary" href="{ url_for('games_home') }">게임 홈</a>
-        <a class="btn btn-primary" href="{ url_for('ladder_game') }">다시 하기</a>
-      </div>
-    </div></div>
-    """
+    # 랜덤 섞기(상단 이름 순서)
+    random.shuffle(players)
+    N = len(players)
+
+    # 사다리 가로줄 생성
+    rows = max(8, min(16, 6 + N*2))
+    rung_density = 0.35  # 0~1
+    rungs = []
+    for r in range(rows):
+        avail_cols = list(range(N-1))
+        random.shuffle(avail_cols)
+        for c in avail_cols:
+            if random.random() < rung_density:
+                # 인접 충돌 방지: 같은 행에서 연속 가로줄 금지
+                if any((rr['r']==r and abs(rr['c']-c)==1) for rr in rungs):
+                    continue
+                rungs.append({"r": r, "c": c})
+
+    # 하단 결과 슬롯 구성 (호구1/조커1/나머지 승리)
+    outcomes = ["승리"] * N
+    loser_col = random.randrange(N)
+    joker_col = (loser_col + random.randrange(1, N)) % N
+    while joker_col == loser_col:
+        joker_col = random.randrange(N)
+    outcomes[loser_col] = "호구"
+    outcomes[joker_col] = "조커"
+
+    # 도착 열 계산(서버에서도 계산해 기본/최종 호구 산출)
+    end_cols = list(range(N))
+    for r in range(rows):
+        for rc in rungs:
+            if rc["r"] == r:
+                end_cols[rc["c"]], end_cols[rc["c"]+1] = end_cols[rc["c"]+1], end_cols[rc["c"]]
+
+    base_loser = players[end_cols.index(loser_col)]
+    joker_person = players[end_cols.index(joker_col)]
+
+    # 조커 효과
+    joker_effect = random.choice(["win","become_loser","swap_random"])
+    final_loser = base_loser
+    if joker_effect == "win":
+        final_loser = base_loser
+    elif joker_effect == "become_loser":
+        final_loser = joker_person
+    else:
+        winners = [players[end_cols.index(c)]
+                   for c, lab in enumerate(outcomes)
+                   if lab == "승리"]
+        if winners:
+            final_loser = random.choice(winners)
+
+    data = {
+        "players": players,
+        "rows": rows,
+        "rungs": rungs,
+        "outcomes": outcomes,
+        "base_loser": base_loser,
+        "joker_person": joker_person,
+        "joker_effect": joker_effect,
+        "final_loser": final_loser,
+    }
+
+    body = render_template_string(LADDER_PLAY, data=data)
     return render(body)
 
 # ===== 외톨이게임: Flask 라우트 (수정 버전, 전체) =====
